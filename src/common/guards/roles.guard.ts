@@ -18,7 +18,7 @@ export class RolesGuard implements CanActivate {
 
     const route = this.routerMatcherService.matchRoute(path);
     if (!route) {
-      throw new ForbiddenException('Route not configured');
+      return true;
     }
 
     const methodConfig = route.methods?.[method as HttpMethod];

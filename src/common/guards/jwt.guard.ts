@@ -11,8 +11,15 @@ import { JwtService } from '../../auth/jwt.service';
 export class JwtGuard implements CanActivate {
   constructor(private readonly jwtService: JwtService) {}
 
+  private readonly publicPaths: string[] = ['/healthcheck', '/version'];
+
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
+
+    if (this.publicPaths.includes(request.path)) {
+      return true;
+    }
+
     const token = this.extractToken(request);
     const payload = this.jwtService.verifySignature(token);
 

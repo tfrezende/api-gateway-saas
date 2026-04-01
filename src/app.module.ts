@@ -7,9 +7,10 @@ import { JwtGuard } from './common/guards/jwt.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { HealthModule } from './health/health.module';
 
 @Module({
-  imports: [SharedModule, AuthModule, ProxyModule],
+  imports: [SharedModule, AuthModule, HealthModule, ProxyModule],
   providers: [
     {
       provide: APP_GUARD,
