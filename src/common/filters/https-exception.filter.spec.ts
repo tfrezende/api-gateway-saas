@@ -6,10 +6,12 @@ import {
   HttpStatus,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ThrottlerException } from '@nestjs/throttler';
 import { HttpExceptionFilter } from './http-exception.filter';
 
 const mockJson = jest.fn();
 const mockStatus = jest.fn(() => ({ json: mockJson }));
+const mockSetHeader = jest.fn();
 
 const buildMockArgumentsHost = (
   method: string,
@@ -22,6 +24,7 @@ const buildMockArgumentsHost = (
 
   const response = {
     status: mockStatus,
+    setHeader: mockSetHeader,
   };
 
   return {
@@ -149,6 +152,47 @@ describe('HttpExceptionFilter', () => {
       const body = calls[0][0];
       expect(body.timestamp).toBeDefined();
       expect(new Date(body.timestamp).toISOString()).toBe(body.timestamp);
+    });
+
+    it('should return 429 for a ThrottlerException', () => {
+      const host = buildMockArgumentsHost('GET', '/api/users');
+      httpExceptionFilter.catch(new ThrottlerException(), host);
+
+      expect(mockStatus).toHaveBeenCalledWith(HttpStatus.TOO_MANY_REQUESTS);
+    });
+
+    it('should set Retry-After header for a ThrottlerException', () => {
+      const mockSetHeader = jest.fn();
+      const host = {
+        switchToHttp: () => ({
+          getRequest: () => ({ method: 'GET', path: '/api/users' }),
+          getResponse: () => ({
+            status: mockStatus,
+            setHeader: mockSetHeader,
+          }),
+        }),
+      } as unknown as ArgumentsHost;
+
+      httpExceptionFilter.catch(new ThrottlerException(), host);
+
+      expect(mockSetHeader).toHaveBeenCalledWith('Retry-After', '60');
+    });
+
+    it('should not set Retry-After header for non-ThrottlerException', () => {
+      const mockSetHeader = jest.fn();
+      const host = {
+        switchToHttp: () => ({
+          getRequest: () => ({ method: 'GET', path: '/api/users' }),
+          getResponse: () => ({
+            status: mockStatus,
+            setHeader: mockSetHeader,
+          }),
+        }),
+      } as unknown as ArgumentsHost;
+
+      httpExceptionFilter.catch(new UnauthorizedException(), host);
+
+      expect(mockSetHeader).not.toHaveBeenCalled();
     });
   });
 });

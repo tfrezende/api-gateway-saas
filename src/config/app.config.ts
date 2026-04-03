@@ -11,4 +11,18 @@ export const appConfig = {
   proxy: {
     timeout: parseInt(process.env.PROXY_TIMEOUT ?? '5000'),
   },
+  redis: {
+    host: process.env.REDIS_HOST ?? 'localhost',
+    port: parseInt(process.env.REDIS_PORT ?? '6379'),
+  },
+  throttler: {
+    ip: {
+      ttl: parseInt(process.env.THROTTLER_IP_TTL ?? '60000'),
+      limit: parseInt(process.env.THROTTLER_IP_LIMIT ?? '200'),
+    },
+    user: {
+      ttl: parseInt(process.env.THROTTLER_USER_TTL ?? '60000'),
+      limit: parseInt(process.env.THROTTLER_USER_LIMIT ?? '300'),
+    },
+  },
 };

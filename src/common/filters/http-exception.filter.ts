@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { ThrottlerException } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 
 interface ErrorResponse {
@@ -33,6 +34,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
       message,
       path: request.path,
     };
+
+    if (exception instanceof ThrottlerException) {
+      response.setHeader('Retry-After', '60');
+    }
 
     this.logger.error(
       `${request.method} ${request.path} ${statusCode} - ${message}`,
