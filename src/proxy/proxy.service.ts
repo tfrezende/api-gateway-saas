@@ -2,6 +2,7 @@ import { BadGatewayException, Injectable } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { request as httpRequest } from 'http';
 import { RouterMatcherService } from '../shared/router-matcher.service';
+import { appConfig } from '../config/app.config';
 
 @Injectable()
 export class ProxyService {
@@ -33,12 +34,28 @@ export class ProxyService {
     };
 
     const proxyReq = httpRequest(options, (proxyRes) => {
-      response.writeHead(proxyRes.statusCode || 500, proxyRes.headers);
+      response.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
       proxyRes.pipe(response, { end: true });
     });
 
-    proxyReq.on('error', (err) => {
-      throw new BadGatewayException(`Error forwarding request: ${err.message}`);
+    proxyReq.setTimeout(appConfig.proxy.timeout, () => {
+      proxyReq.destroy();
+      if (!response.headersSent) {
+        response.writeHead(502, { 'Content-Type': 'application/json' });
+        response.end(
+          JSON.stringify({
+            statusCode: 502,
+            message: 'Upstream service timed out',
+          }),
+        );
+      }
+    });
+
+    proxyReq.on('error', (err: Error) => {
+      if (!response.headersSent) {
+        response.writeHead(502, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ statusCode: 502, message: err.message }));
+      }
     });
 
     request.pipe(proxyReq);

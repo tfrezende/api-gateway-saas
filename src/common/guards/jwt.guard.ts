@@ -6,17 +6,30 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '../../auth/jwt.service';
+import { HttpMethod } from '../../config/routes.config';
+import { RouterMatcherService } from '../../shared/router-matcher.service';
 
 @Injectable()
 export class JwtGuard implements CanActivate {
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly routeMatcher: RouterMatcherService,
+  ) {}
 
   private readonly publicPaths: string[] = ['/healthcheck', '/version'];
 
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
+    const { path, method } = request;
 
-    if (this.publicPaths.includes(request.path)) {
+    if (this.publicPaths.includes(path)) {
+      return true;
+    }
+
+    const route = this.routeMatcher.matchRoute(path);
+    const methodConfig = route?.methods?.[method as HttpMethod];
+
+    if (!route || !methodConfig || methodConfig.isPublic) {
       return true;
     }
 

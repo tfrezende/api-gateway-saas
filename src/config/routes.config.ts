@@ -56,4 +56,14 @@ export const routes: RouteConfig[] = [
       },
     },
   },
+  {
+    path: '/unreachable',
+    target: 'http://localhost:9999',
+    methods: {
+      GET: {
+        roles: ['admin'],
+        scopes: ['read'],
+      },
+    },
+  },
 ];
