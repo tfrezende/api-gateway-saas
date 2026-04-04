@@ -1,3 +1,9 @@
 process.env.JWT_SECRET = 'test-secret-that-is-long-enough-for-hmac';
 process.env.PORT = '3000';
 process.env.PROXY_TIMEOUT = '2000';
+process.env.REDIS_HOST = 'localhost';
+process.env.REDIS_PORT = '6379';
+process.env.THROTTLER_IP_TTL = '60000';
+process.env.THROTTLER_IP_LIMIT = '50';
+process.env.THROTTLER_USER_TTL = '60000';
+process.env.THROTTLER_USER_LIMIT = '80';

@@ -3,6 +3,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import http from 'http';
 import jwt from 'jsonwebtoken';
+import { createClient } from 'redis';
 import { AppModule } from '../app.module';
 import type { Role, Scope } from '../config/routes.config';
 
@@ -62,7 +63,18 @@ describe('ProxyService (integration)', () => {
   let httpServer: http.Server;
 
   beforeAll(async () => {
-    // spin up mock downstream services
+    /* eslint-disable */
+    const redisClient = createClient({
+      socket: {
+        host: process.env.REDIS_HOST ?? 'localhost',
+        port: parseInt(process.env.REDIS_PORT ?? '6379'),
+      },
+    });
+
+    await redisClient.connect();
+    await redisClient.flushAll();
+    await redisClient.quit();
+    /* eslint-enable */
     authServer = createMockServer();
     usersServer = createMockServer();
 
@@ -372,5 +384,47 @@ describe('ProxyService (integration)', () => {
       .get('/nonexistent')
       .set('Authorization', `Bearer ${token}`)
       .expect(502);
+  });
+
+  describe('rate limiting', () => {
+    async function sendRequests(
+      httpServer: http.Server,
+      count: number,
+      requestFn: () => request.Test,
+      batchSize = 10,
+    ): Promise<number[]> {
+      const statuses: number[] = [];
+
+      for (let i = 0; i < count; i += batchSize) {
+        const batchRequests = Array.from(
+          { length: Math.min(batchSize, count - i) },
+          () => requestFn(),
+        );
+        const responses = await Promise.all(batchRequests);
+        statuses.push(...responses.map((res) => res.status));
+
+        if (statuses.includes(429)) break; // stop sending more requests if we hit the rate limit
+      }
+      return statuses;
+    }
+
+    it('should return 429 when the IP limit is exceeded', async () => {
+      const statuses = await sendRequests(httpServer, 100, () =>
+        request(httpServer).get('/auth'),
+      );
+
+      expect(statuses).toContain(429);
+    });
+
+    it('should return 429 when the user limit is exceeded', async () => {
+      const token = buildToken(['user'], ['read']);
+      const statuses = await sendRequests(httpServer, 100, () =>
+        request(httpServer)
+          .get('/users')
+          .set('Authorization', `Bearer ${token}`),
+      );
+
+      expect(statuses).toContain(429);
+    });
   });
 });
