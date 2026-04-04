@@ -206,7 +206,7 @@ Downstream services do not need to validate tokens — they can trust these head
 
 These features are architecturally straightforward to add given the current structure:
 
-**Observability** - integrate metrics and structured logging to make the gateway's behavior visible in production. Expose a /metrics endpoint track request rates, latency percentiles, and error rates per route. Add distributed tracing to propagate trace IDs across the gateway and downstream services, making it possible to follow a single request end to end across the entire system.
+**Observability** — integrate metrics and structured logging to make the gateway's behavior visible in production. Expose a /metrics endpoint track request rates, latency percentiles, and error rates per route. Add distributed tracing to propagate trace IDs across the gateway and downstream services, making it possible to follow a single request end to end across the entire system.
 
 **Circuit breaking** — when a downstream service exceeds its failure threshold, the circuit opens and requests fail fast with a `503` instead of waiting for timeouts.
 
