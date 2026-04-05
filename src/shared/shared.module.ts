@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
 import { RouterMatcherService } from './router-matcher.service';
+import { LoggerService } from './logger.service';
 
 @Module({
-  providers: [RouterMatcherService],
-  exports: [RouterMatcherService],
+  providers: [RouterMatcherService, LoggerService],
+  exports: [RouterMatcherService, LoggerService],
 })
 export class SharedModule {}

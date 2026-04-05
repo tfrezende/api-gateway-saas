@@ -25,4 +25,8 @@ export const appConfig = {
       limit: parseInt(process.env.THROTTLER_USER_LIMIT ?? '300'),
     },
   },
+  logger: {
+    level: process.env.LOGGER_LEVEL ?? 'info',
+    pretty: process.env.NODE_ENV !== 'production',
+  },
 };
