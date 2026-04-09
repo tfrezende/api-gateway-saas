@@ -9,6 +9,7 @@ import {
 import { ThrottlerException } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { LoggerService } from '../../shared/logger.service';
+import { MetricsService } from '../../metrics/metrics.service';
 
 interface ErrorResponse {
   statusCode: number;
@@ -20,7 +21,10 @@ interface ErrorResponse {
 @Catch()
 @Injectable()
 export class HttpExceptionFilter implements ExceptionFilter {
-  constructor(private readonly logger: LoggerService) {}
+  constructor(
+    private readonly logger: LoggerService,
+    private readonly metricsService: MetricsService,
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost) {
     const context = host.switchToHttp();
@@ -55,6 +59,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
         error: message,
       });
     }
+
+    this.metricsService.incrementErrorCount(
+      request.method,
+      request.path,
+      statusCode,
+    );
 
     response.status(statusCode).json(body);
   }

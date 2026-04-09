@@ -1,5 +1,6 @@
 import { LoggingInterceptor } from './logging.interceptor';
 import { LoggerService } from '../../shared/logger.service';
+import { MetricsService } from '../../metrics/metrics.service';
 import { ExecutionContext, CallHandler } from '@nestjs/common';
 import { of } from 'rxjs';
 import type { Request, Response } from 'express';
@@ -9,6 +10,12 @@ const mockLoggerService = {
   warn: jest.fn(),
   error: jest.fn(),
   child: jest.fn(),
+};
+
+const mockMetricsService = {
+  incrementRequestCount: jest.fn(),
+  incrementErrorCount: jest.fn(),
+  recordLatency: jest.fn(),
 };
 
 const mockSetHeader = jest.fn().mockReturnThis();
@@ -44,6 +51,7 @@ describe('LoggingInterceptor', () => {
     mockSetHeader.mockClear();
     interceptor = new LoggingInterceptor(
       mockLoggerService as unknown as LoggerService,
+      mockMetricsService as unknown as MetricsService,
     );
     jest.clearAllMocks();
   });

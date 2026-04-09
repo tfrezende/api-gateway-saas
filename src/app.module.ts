@@ -12,6 +12,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { HealthModule } from './health/health.module';
 import { appConfig } from './config/app.config';
+import { MetricsModule } from './metrics/metrics.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { appConfig } from './config/app.config';
     SharedModule,
     AuthModule,
     HealthModule,
+    MetricsModule,
     ProxyModule,
   ],
   providers: [

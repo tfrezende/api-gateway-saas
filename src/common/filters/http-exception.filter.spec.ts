@@ -9,6 +9,7 @@ import {
 import { ThrottlerException } from '@nestjs/throttler';
 import { HttpExceptionFilter } from './http-exception.filter';
 import { LoggerService } from '../../shared/logger.service';
+import { MetricsService } from '../../metrics/metrics.service';
 
 const mockJson = jest.fn();
 const mockStatus = jest.fn(() => ({ json: mockJson }));
@@ -18,6 +19,11 @@ const mockLoggerService = {
   warn: jest.fn(),
   error: jest.fn(),
   child: jest.fn(),
+};
+const mockMetricsService = {
+  incrementRequestCount: jest.fn(),
+  incrementErrorCount: jest.fn(),
+  recordLatency: jest.fn(),
 };
 
 const buildMockArgumentsHost = (
@@ -52,6 +58,7 @@ describe('HttpExceptionFilter', () => {
   beforeEach(() => {
     httpExceptionFilter = new HttpExceptionFilter(
       mockLoggerService as unknown as LoggerService,
+      mockMetricsService as unknown as MetricsService,
     );
     jest.clearAllMocks();
   });
