@@ -1,10 +1,10 @@
 # API Gateway
 
-A production-ready API Gateway built with NestJS, providing a single entry point for routing, authentication, and rate limiting across multiple downstream services.
+A production-ready API Gateway built with NestJS, providing a single entry point for routing, authentication, rate limiting, and observability across multiple downstream services.
 
 ## Overview
 
-This gateway sits between frontend clients and downstream services, handling cross-cutting concerns so individual services don't have to. Every request is authenticated, rate limited, and logged before being proxied to the appropriate upstream service.
+This gateway sits between frontend clients and downstream services, handling cross-cutting concerns so individual services don't have to. Every request is authenticated, rate limited, logged, and tracked before being proxied to the appropriate upstream service.
 
 ## Architecture
 
@@ -23,6 +23,9 @@ NestJS middleware runs before guards, which would mean requests get proxied befo
 **Why rate limiting runs after auth**
 An invalid token should return `401` before consuming a user's rate limit quota. Running `ThrottlerGuard` after `JwtGuard` and `RolesGuard` ensures auth failures are rejected early without touching the rate limiter.
 
+**Why metrics are collected in the interceptor and filter**
+`LoggingInterceptor` has visibility into every completed request — method, path, status code, and latency. `HttpExceptionFilter` has visibility into every error. These are the only two places in the pipeline where all the information needed for meaningful metrics is available simultaneously.
+
 ## Features
 
 - **JWT authentication** — validates bearer tokens on all protected routes, extracts roles and scopes from claims
@@ -30,7 +33,9 @@ An invalid token should return `401` before consuming a user's rate limit quota.
 - **Dual rate limiting** — per-user ID when authenticated, per-IP as fallback, backed by Redis
 - **Request proxying** — forwards requests to downstream services using Node's native HTTP module, streaming request and response bodies without buffering
 - **User identity forwarding** — strips the JWT and injects `X-Auth-User-Id`, `X-Auth-User-Roles`, and `X-Auth-User-Scopes` headers for downstream services
-- **Request logging** — logs method, path, status code, and latency for every request
+- **Structured logging** — JSON logs via Pino with request ID correlation, latency, and user context. Pretty-printed in development, raw JSON in production
+- **Prometheus metrics** — request rate, error rate, and latency histograms per route, exposed at `/metrics` behind an API key
+- **Grafana dashboard** — pre-configured dashboard showing request rate, error rate, p50/p99 latency, and rate limited requests
 - **Consistent error responses** — all errors return a uniform JSON shape with status code, message, path, and timestamp
 - **Health and version endpoints** — gateway-internal endpoints that bypass auth and proxying
 
@@ -62,6 +67,11 @@ src/
 ├── health/
 |   ├── health.module.ts
 │   └── health.controller.ts   # /healthcheck and /version endpoints
+├── metrics/
+│   ├── metrics.controller.ts  # serves /metrics behind API key auth
+│   ├── metrics.guard.ts       # validates X-Metrics-Api-Key or Bearer token
+│   ├── metrics.module.ts
+│   └── metrics.service.ts     # Prometheus counters and histograms
 ├── shared/
 |   ├── shared.module.ts
 │   └── route-matcher.service.ts  # path matching shared between guards and proxy
@@ -75,7 +85,7 @@ src/
 ### Prerequisites
 
 - Node.js 20+
-- Docker
+- Docker and Docker Compose
 
 ### Setup
 
@@ -90,15 +100,38 @@ npm install
 
 # configure environment
 cp .env.example .env
+# fill in JWT_SECRET, METRICS_API_KEY, and GRAFANA_PASSWORD in .env
+ 
+# start all services
+docker-compose up --build -d
+```
 
+### Running locally
+ 
+```bash
+# start Redis
+docker run -d --name gateway-redis -p 6379:6379 redis:7.2-alpine
+ 
+# configure environment
+cp .env.example .env
+ 
 # start in development mode
 npm run start:dev
 ```
 
 The gateway starts on `http://localhost:3000` by default.
 
+## Services
+ 
+| Service    | URL                       | Description                        |
+|------------|---------------------------|------------------------------------|
+| Gateway    | http://localhost:3000     | API Gateway                        |
+| Prometheus | http://localhost:9090     | Metrics collection                 |
+| Grafana    | http://localhost:3001     | Metrics dashboard (admin/password) |
+| Redis      | localhost:6379            | Rate limiter state                 |
+ 
 ## Configuration
-
+ 
 | Variable | Default | Description |
 |---|---|---|
 | `PORT` | `3000` | Port the gateway listens on |
@@ -111,6 +144,10 @@ The gateway starts on `http://localhost:3000` by default.
 | `THROTTLER_IP_LIMIT` | `200` | Max requests per IP per window |
 | `THROTTLER_USER_TTL` | `60000` | User rate limit window in milliseconds |
 | `THROTTLER_USER_LIMIT` | `300` | Max requests per user per window |
+| `METRICS_API_KEY` | — | **Required.** API key for /metrics endpoint |
+| `LOG_LEVEL` | `info` | Pino log level (trace/debug/info/warn/error) |
+| `NODE_ENV` | `development` | Enables pretty logging when not production |
+| `GRAFANA_PASSWORD` | `admin` | Grafana admin password |
 
 ## Adding a route
 
@@ -166,6 +203,7 @@ These endpoints are served directly by the gateway and do not require authentica
 |---|---|---|
 | `GET` | `/healthcheck` | Returns gateway health status |
 | `GET` | `/version` | Returns gateway name and version |
+| `GET` | `/metrics` | Prometheus metrics (requires `X-Metrics-Api-Key` header) |
 
 ### Error responses
 
@@ -199,14 +237,54 @@ Downstream services receive the following headers on authenticated requests:
 | `X-Auth-User-Email` | Email claim from JWT |
 | `X-Auth-User-Roles` | Comma-separated roles from JWT |
 | `X-Auth-User-Scopes` | Comma-separated scopes from JWT |
+| `X-Request-Id` | UUID generated per request for log correlation |
 
 Downstream services do not need to validate tokens — they can trust these headers since only the gateway has access to the JWT secret.
+
+## Scraping metrics
+ 
+Prometheus scrapes `/metrics` using a Bearer token. To query metrics manually:
+ 
+```bash
+curl http://localhost:3000/metrics \
+  -H "X-Metrics-Api-Key: your-metrics-key"
+```
+ 
+## Observability
+ 
+### Logs
+ 
+Logs are structured JSON in production and pretty-printed in development. Every log line includes:
+ 
+- `requestId` — UUID for correlating request and response log entries
+- `method` and `path` — HTTP method and route pattern
+- `statusCode` — response status code
+- `latencyMs` — total request duration
+- `userId` — authenticated user ID when present
+ 
+### Metrics
+ 
+The following metrics are exposed at `/metrics`:
+ 
+| Metric | Type | Description |
+|---|---|---|
+| `api_gateway_requests_total` | Counter | Total requests by method, path, status code |
+| `api_gateway_errors_total` | Counter | Total errors by method, path, status code |
+| `api_gateway_request_latency_seconds` | Histogram | Request latency by method and path |
+ 
+### Grafana dashboard
+ 
+The pre-configured dashboard at `http://localhost:3001` includes:
+ 
+- Request rate per route
+- Error rate per route and status code
+- p50 and p99 latency per route
+- Rate limited request rate
+- Total request count
 
 ## Planned extensions
 
 These features are architecturally straightforward to add given the current structure:
-
-**Observability** — integrate metrics and structured logging to make the gateway's behavior visible in production. Expose a /metrics endpoint track request rates, latency percentiles, and error rates per route. Add distributed tracing to propagate trace IDs across the gateway and downstream services, making it possible to follow a single request end to end across the entire system.
 
 **Circuit breaking** — when a downstream service exceeds its failure threshold, the circuit opens and requests fail fast with a `503` instead of waiting for timeouts.
 

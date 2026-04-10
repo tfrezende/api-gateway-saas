@@ -4,10 +4,12 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
-  Logger,
+  Injectable,
 } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
+import { LoggerService } from '../../shared/logger.service';
+import { MetricsService } from '../../metrics/metrics.service';
 
 interface ErrorResponse {
   statusCode: number;
@@ -17,8 +19,12 @@ interface ErrorResponse {
 }
 
 @Catch()
+@Injectable()
 export class HttpExceptionFilter implements ExceptionFilter {
-  private readonly logger = new Logger(HttpExceptionFilter.name);
+  constructor(
+    private readonly logger: LoggerService,
+    private readonly metricsService: MetricsService,
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost) {
     const context = host.switchToHttp();
@@ -27,6 +33,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     const statusCode = this.resolveStatus(exception);
     const message = this.resolveMessage(exception);
+    const requestId = request.headers['x-request-id'] as string | undefined;
 
     const body: ErrorResponse = {
       statusCode,
@@ -37,10 +44,26 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     if (exception instanceof ThrottlerException) {
       response.setHeader('Retry-After', '60');
+      this.logger.warn(message, {
+        requestId,
+        method: request.method,
+        path: request.path,
+        statusCode,
+      });
+    } else {
+      this.logger.error(message, {
+        requestId,
+        method: request.method,
+        path: request.path,
+        statusCode,
+        error: message,
+      });
     }
 
-    this.logger.error(
-      `${request.method} ${request.path} ${statusCode} - ${message}`,
+    this.metricsService.incrementErrorCount(
+      request.method,
+      request.path,
+      statusCode,
     );
 
     response.status(statusCode).json(body);

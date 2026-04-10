@@ -8,18 +8,35 @@ import {
 } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 import { HttpExceptionFilter } from './http-exception.filter';
+import { LoggerService } from '../../shared/logger.service';
+import { MetricsService } from '../../metrics/metrics.service';
 
 const mockJson = jest.fn();
 const mockStatus = jest.fn(() => ({ json: mockJson }));
 const mockSetHeader = jest.fn();
+const mockLoggerService = {
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+  child: jest.fn(),
+};
+const mockMetricsService = {
+  incrementRequestCount: jest.fn(),
+  incrementErrorCount: jest.fn(),
+  recordLatency: jest.fn(),
+};
 
 const buildMockArgumentsHost = (
   method: string,
   path: string,
+  requestId?: string,
 ): ArgumentsHost => {
   const request = {
     method,
     path,
+    headers: {
+      'x-request-id': requestId,
+    },
   };
 
   const response = {
@@ -39,7 +56,10 @@ describe('HttpExceptionFilter', () => {
   let httpExceptionFilter: HttpExceptionFilter;
 
   beforeEach(() => {
-    httpExceptionFilter = new HttpExceptionFilter();
+    httpExceptionFilter = new HttpExceptionFilter(
+      mockLoggerService as unknown as LoggerService,
+      mockMetricsService as unknown as MetricsService,
+    );
     jest.clearAllMocks();
   });
 
@@ -162,16 +182,11 @@ describe('HttpExceptionFilter', () => {
     });
 
     it('should set Retry-After header for a ThrottlerException', () => {
-      const mockSetHeader = jest.fn();
-      const host = {
-        switchToHttp: () => ({
-          getRequest: () => ({ method: 'GET', path: '/api/users' }),
-          getResponse: () => ({
-            status: mockStatus,
-            setHeader: mockSetHeader,
-          }),
-        }),
-      } as unknown as ArgumentsHost;
+      const host = buildMockArgumentsHost(
+        'GET',
+        '/api/users',
+        'test-request-id',
+      );
 
       httpExceptionFilter.catch(new ThrottlerException(), host);
 
@@ -179,20 +194,64 @@ describe('HttpExceptionFilter', () => {
     });
 
     it('should not set Retry-After header for non-ThrottlerException', () => {
-      const mockSetHeader = jest.fn();
-      const host = {
-        switchToHttp: () => ({
-          getRequest: () => ({ method: 'GET', path: '/api/users' }),
-          getResponse: () => ({
-            status: mockStatus,
-            setHeader: mockSetHeader,
-          }),
-        }),
-      } as unknown as ArgumentsHost;
+      const host = buildMockArgumentsHost('GET', '/api/users');
 
       httpExceptionFilter.catch(new UnauthorizedException(), host);
 
       expect(mockSetHeader).not.toHaveBeenCalled();
+    });
+
+    it('should log warn for ThrottlerException', () => {
+      const host = buildMockArgumentsHost('GET', '/api/users', 'abc-123');
+      httpExceptionFilter.catch(new ThrottlerException(), host);
+
+      expect(mockLoggerService.warn).toHaveBeenCalledWith(
+        'ThrottlerException: Too Many Requests',
+        expect.objectContaining({
+          requestId: 'abc-123',
+          method: 'GET',
+          path: '/api/users',
+          statusCode: HttpStatus.TOO_MANY_REQUESTS,
+        }),
+      );
+    });
+
+    it('should log error for non-ThrottlerException', () => {
+      const host = buildMockArgumentsHost('GET', '/api/users', 'abc-123');
+      httpExceptionFilter.catch(
+        new UnauthorizedException('Unauthorized'),
+        host,
+      );
+
+      expect(mockLoggerService.error).toHaveBeenCalledWith(
+        'Unauthorized',
+        expect.objectContaining({
+          requestId: 'abc-123',
+          method: 'GET',
+          path: '/api/users',
+          statusCode: HttpStatus.UNAUTHORIZED,
+        }),
+      );
+    });
+
+    it('should include requestId in log when present in headers', () => {
+      const host = buildMockArgumentsHost('GET', '/api/users', 'abc-123');
+      httpExceptionFilter.catch(new UnauthorizedException(), host);
+
+      expect(mockLoggerService.error).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ requestId: 'abc-123' }),
+      );
+    });
+
+    it('should handle missing requestId in headers gracefully', () => {
+      const host = buildMockArgumentsHost('GET', '/api/users');
+      httpExceptionFilter.catch(new UnauthorizedException(), host);
+
+      expect(mockLoggerService.error).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ requestId: undefined }),
+      );
     });
   });
 });

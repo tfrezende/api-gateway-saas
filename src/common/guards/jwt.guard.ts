@@ -16,7 +16,11 @@ export class JwtGuard implements CanActivate {
     private readonly routeMatcher: RouterMatcherService,
   ) {}
 
-  private readonly publicPaths: string[] = ['/healthcheck', '/version'];
+  private readonly publicPaths: string[] = [
+    '/healthcheck',
+    '/version',
+    '/metrics',
+  ];
 
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
