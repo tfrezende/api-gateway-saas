@@ -13,7 +13,7 @@ export class MetricsGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<Request>();
     const apiKey = request.headers['x-metrics-api-key'] as string | undefined;
     const authHeader = request.headers['authorization'];
-    const bearerKey = authHeader?.startsWith('ApiKey ')
+    const bearerKey = authHeader?.startsWith('Bearer ')
       ? authHeader.split(' ')[1]
       : undefined;
 

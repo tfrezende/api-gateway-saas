@@ -45,7 +45,7 @@
     "@types/express": "^5.0.0",
     "@types/ioredis": "^4.28.10",
     "@types/jest": "^30.0.0",
-    "@types/node": "^22.10.7",
+    "@types/node": "^22.19.17",
     "@types/pino": "^7.0.4",
     "@types/pino-http": "^5.8.4",
     "@types/redis": "^4.0.10",

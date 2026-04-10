@@ -13,7 +13,7 @@
     "target": "ES2023",
     "sourceMap": true,
     "outDir": "./dist",
-    "baseUrl": "./",
+    "rootDir": "./src",
     "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": true,
@@ -23,5 +23,7 @@
     "noFallthroughCasesInSwitch": false,
     "typeRoots": ["./src/types", "./node_modules/@types"],
     "types": ["node", "jest"]
-  }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "grafana-data", "jest.setup.ts", "jest.global-setup.ts", "tsconfig.json"]
 }

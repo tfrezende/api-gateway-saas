@@ -1,0 +1,74 @@
+version: '3.9'
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      JWT_SECRET: ${JWT_SECRET}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      METRICS_API_KEY: ${METRICS_API_KEY}
+      LOG_LEVEL: info
+      THROTTLER_IP_LIMIT: 200
+      THROTTLER_USER_LIMIT: 300
+    depends_on:
+      redis:
+        condition: service_healthy
+      prometheus:
+        condition: service_started
+    networks:
+      - gateway-net
+
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - '6379:6379'
+    networks:
+      - gateway-net
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    ports:
+      - '9090:9090'
+    environment:
+      METRICS_API_KEY: ${METRICS_API_KEY}
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ['/entrypoint.sh']
+    networks:
+      - gateway-net
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports:
+      - '3001:3000'
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    networks:
+      - gateway-net
+
+volumes:
+  grafana-data:
+
+networks:
+  gateway-net:
+    driver: bridge
