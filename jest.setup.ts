@@ -7,3 +7,6 @@ process.env.THROTTLER_IP_TTL = '60000';
 process.env.THROTTLER_IP_LIMIT = '50';
 process.env.THROTTLER_USER_TTL = '60000';
 process.env.THROTTLER_USER_LIMIT = '80';
+process.env.CIRCUIT_BREAKER_THRESHOLD = '3';
+process.env.CIRCUIT_BREAKER_HALF_OPEN_AFTER = '1000';
+process.env.LOG_LEVEL = 'error';

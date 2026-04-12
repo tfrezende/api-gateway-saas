@@ -13,11 +13,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
-    "test": "jest --config jest.config.js --testPathIgnorePatterns=\".*\\.integration\\.spec\\.ts$\" --watchAll=false",
-    "test:integration": "jest --config jest.integration.config.js --watchAll=false",
-    "test:all": "npm run test && npm run test:integration --coverage",
-    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test": "jest --config jest.config.js --watchAll=false --coverage"
   },
   "dependencies": {
     "@nest-lab/throttler-storage-redis": "^1.2.0",
@@ -55,6 +51,7 @@
     "eslint-plugin-prettier": "^5.2.2",
     "globals": "^16.0.0",
     "http-proxy-middleware": "^3.0.5",
+    "istanbul-merge": "^2.0.0",
     "jest": "^30.0.0",
     "jsonwebtoken": "^9.0.3",
     "pino-pretty": "^13.1.3",
