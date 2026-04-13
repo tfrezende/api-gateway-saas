@@ -16,7 +16,10 @@ export interface JwtPayload {
 export class JwtService {
   verifySignature(token: string): JwtPayload {
     try {
-      return verify(token, appConfig.jwt.secret) as JwtPayload;
+      return verify(
+        token,
+        appConfig.jwt.secret as string,
+      ) as unknown as JwtPayload;
     } catch (error: unknown) {
       if (error instanceof TokenExpiredError) {
         throw new UnauthorizedException('Token has expired');
