@@ -152,7 +152,7 @@ The gateway starts on `http://localhost:3000` by default.
 | `CIRCUIT_BREAKER_THRESHOLD` | `5` | Consecutive failures before the circuit opens |
 | `CIRCUIT_BREAKER_HALF_OPEN_AFTER` | `10000` | Milliseconds to wait before probing a recovering target |
 | `METRICS_API_KEY` | — | **Required.** API key for /metrics endpoint |
-| `LOG_LEVEL` | `info` | Pino log level (trace/debug/info/warn/error) |
+| `LOGGER_LEVEL` | `info` | Pino log level (trace/debug/info/warn/error) |
 | `NODE_ENV` | `development` | Enables pretty logging when not production |
 | `GRAFANA_PASSWORD` | `admin` | Grafana admin password |
 
@@ -188,17 +188,11 @@ No other files need to change — the guards and proxy service read from this co
 ## Running tests
 
 ```bash
-# unit tests with coverage
+# unit + integration tests with coverage
 npm run test
-
-# integration tests (requires Docker for Redis)
-npm run test:integration
-
-# both
-npm run test:all
 ```
 
-Coverage is collected separately for unit and integration tests. Unit tests cover guards, filters, interceptors, and services. Integration tests cover the full request lifecycle including proxying, header forwarding, auth enforcement, and rate limiting.
+Unit tests cover guards, filters, interceptors, and services. Integration tests cover the full request lifecycle including proxying, header forwarding, auth enforcement, and rate limiting.
 
 ## API reference
 
@@ -332,4 +326,4 @@ These features are architecturally straightforward to add given the current stru
 
 **Load balancing** — replace the static `target` in `RouteConfig` with a `targets` array and implement round-robin or weighted selection in `ProxyService`.
 
-**Multi-tenant service discovery** — populate route targets dynamically per tenant instead of from a static config file, keepi tenant isolation at the routing layer and letting services be provisioned or deprovisioned per tenant without a gateway redeployment.
+**Multi-tenant service discovery** — populate route targets dynamically per tenant instead of from a static config file, keeping tenant isolation at the routing layer and letting services be provisioned or deprovisioned per tenant without a gateway redeployment.

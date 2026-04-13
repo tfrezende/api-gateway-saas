@@ -29,27 +29,36 @@ export class ProxyService {
       .catch((err) => {
         if (err instanceof BrokenCircuitError) {
           if (!response.headersSent) {
-            response.writeHead(503, { 'Content-Type': 'application/json' });
-            response.end(
-              JSON.stringify({
-                statusCode: 503,
-                message: `Service ${route.target} is currently unavailable - circuit is open`,
-              }),
+            this.sendErrorResponse(
+              request,
+              response,
+              503,
+              `Service ${route.target} is currently unavailable - circuit is open`,
             );
             return;
           }
         }
-
         if (!response.headersSent) {
-          response.writeHead(502, { 'Content-Type': 'application/json' });
-          response.end(
-            JSON.stringify({
-              statusCode: 502,
-              message: 'Bad gateway error',
-            }),
-          );
+          this.sendErrorResponse(request, response, 502, 'Bad gateway error');
         }
       });
+  }
+
+  private sendErrorResponse(
+    request: Request,
+    response: Response,
+    statusCode: number,
+    message: string,
+  ): void {
+    response.writeHead(statusCode, { 'Content-Type': 'application/json' });
+    response.end(
+      JSON.stringify({
+        statusCode,
+        message,
+        timestamp: new Date().toISOString(),
+        path: request.originalUrl || request.url,
+      }),
+    );
   }
 
   private pipe(
