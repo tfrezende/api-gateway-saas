@@ -1,10 +1,22 @@
 module.exports = {
   moduleFileExtensions: ['js', 'json', 'ts'],
   rootDir: '.',
-  testMatch: ['**/*.spec.ts'],
-  transform: { '^.+\\.(t|j)s$': 'ts-jest' },
-  setupFiles: ['./jest.setup.ts'],
-  collectCoverage: true,
+  projects: [
+    {
+      displayName: 'unit',
+      testMatch: ['**/*.spec.ts'],
+      testPathIgnorePatterns: ['.*\\.integration\\.spec\\.ts$'],
+      transform: { '^.+\\.(t|j)s$': 'ts-jest' },
+      setupFiles: ['./jest.setup.ts'],
+    },
+    {
+      displayName: 'integration',
+      testMatch: ['**/*.integration.spec.ts'],
+      transform: { '^.+\\.(t|j)s$': 'ts-jest' },
+      setupFiles: ['./jest.setup.ts'],
+      globalSetup: './jest.global-setup.ts',
+    },
+  ],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'html'],
   collectCoverageFrom: [
@@ -14,7 +26,6 @@ module.exports = {
     '!src/main.ts',
     '!src/jest.setup.ts',
     '!src/types/**',
-    '!src/proxy/**',
   ],
   coverageThreshold: {
     global: {

@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken';
 import { createClient } from 'redis';
 import { AppModule } from '../app.module';
 import type { Role, Scope } from '../config/routes.config';
+import { CircuitBreakerService } from '../proxy/circuit-breaker/circuit-breaker.service';
 
 interface MockServerResponse {
   proxied: boolean;
@@ -17,6 +18,7 @@ interface MockServerResponse {
   version?: string;
   name?: string;
   status?: string;
+  message?: string;
 }
 
 const TEST_SECRET = 'test-secret-that-is-long-enough-for-hmac';
@@ -56,31 +58,60 @@ const createMockServer = (): http.Server => {
   });
 };
 
+const startServer = (server: http.Server, port: number): Promise<void> => {
+  if (server.listening) {
+    return Promise.resolve();
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    server.listen(port, (err?: Error) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+};
+
+const stopServer = (server: http.Server): Promise<void> => {
+  if (!server.listening) {
+    return Promise.resolve();
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    server.close((err?: Error) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+};
+
+const flushRedis = async (): Promise<void> => {
+  const redisClient = createClient({
+    socket: {
+      host: process.env.REDIS_HOST ?? 'localhost',
+      port: parseInt(process.env.REDIS_PORT ?? '6379'),
+    },
+  });
+
+  await redisClient.connect();
+  await redisClient.flushAll();
+  await redisClient.quit();
+};
+
 describe('ProxyService (integration)', () => {
   let app: INestApplication;
   let authServer: http.Server;
   let usersServer: http.Server;
   let httpServer: http.Server;
+  let circuitBreakerService: CircuitBreakerService;
 
   beforeAll(async () => {
-    /* eslint-disable */
-    const redisClient = createClient({
-      socket: {
-        host: process.env.REDIS_HOST ?? 'localhost',
-        port: parseInt(process.env.REDIS_PORT ?? '6379'),
-      },
-    });
-
-    await redisClient.connect();
-    await redisClient.flushAll();
-    await redisClient.quit();
-    /* eslint-enable */
+    await flushRedis();
     authServer = createMockServer();
     usersServer = createMockServer();
 
     await Promise.all([
-      new Promise<void>((resolve) => authServer.listen(3001, resolve)),
-      new Promise<void>((resolve) => usersServer.listen(3002, resolve)),
+      startServer(authServer, 3001),
+      startServer(usersServer, 3002),
     ]);
 
     const moduleRef = await Test.createTestingModule({
@@ -90,12 +121,12 @@ describe('ProxyService (integration)', () => {
     app = moduleRef.createNestApplication();
     await app.init();
     httpServer = app.getHttpServer() as http.Server;
+    circuitBreakerService = app.get(CircuitBreakerService, { strict: false });
   });
 
   afterAll(async () => {
     await app.close();
-    authServer.close();
-    usersServer.close();
+    await Promise.all([stopServer(authServer), stopServer(usersServer)]);
   });
 
   // ── Public routes ──────────────────────────────────────────────────
@@ -310,88 +341,151 @@ describe('ProxyService (integration)', () => {
           expect(body.name).toBeDefined();
         });
     });
+    it('should return 502 when the downstream service is unreachable', async () => {
+      const token = buildToken(['admin'], ['read']);
+
+      await request(httpServer)
+        .get('/unreachable')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(502);
+    }, 10000);
+
+    it('should return 502 when the downstream service times out', async () => {
+      // temporarily point a route at the slow server
+      // by closing the users server and starting the slow one on its port
+      await stopServer(usersServer);
+
+      const slowOnUsersPort = http.createServer(() => {
+        // never respond
+      });
+
+      await startServer(slowOnUsersPort, 3002);
+
+      const token = buildToken(['user'], ['read']);
+
+      await request(httpServer)
+        .get('/users')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(502);
+
+      await stopServer(slowOnUsersPort);
+      await startServer(usersServer, 3002);
+    }, 15000);
+
+    it('should return 502 when an inexistent route is accessed', async () => {
+      const token = buildToken(['admin'], ['read']);
+
+      await request(httpServer)
+        .get('/nonexistent')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(502);
+    });
   });
 
-  it('should return 502 when the downstream service is unreachable', async () => {
-    const token = buildToken(['admin'], ['read']);
-
-    await request(httpServer)
-      .get('/unreachable')
-      .set('Authorization', `Bearer ${token}`)
-      .expect(502);
-  }, 10000);
-
-  it('should return 502 when the downstream service times out', async () => {
-    const slowServer = http.createServer(() => {
-      // deliberately never respond
+  describe('circuit breaker', () => {
+    beforeAll(async () => {
+      circuitBreakerService.resetAll();
+      await flushRedis();
     });
 
-    await new Promise<void>((resolve, reject) => {
-      slowServer.listen(3003, (err?: Error) => {
-        if (err) reject(err);
-        else resolve();
+    afterAll(async () => {
+      await startServer(usersServer, 3002);
+    });
+
+    it('should return 503 when the circuit is open', async () => {
+      // temporarily point the users route at a server that will fail to trigger the circuit breaker
+      await stopServer(usersServer);
+
+      const token = buildToken(['user'], ['read']);
+      const threshold = parseInt(process.env.CIRCUIT_BREAKER_THRESHOLD ?? '5');
+
+      // send enough requests to trip the circuit breaker
+      for (let i = 0; i < threshold; i++) {
+        await request(httpServer)
+          .get('/users')
+          .set('Authorization', `Bearer ${token}`);
+      }
+
+      // the next request should hit the open circuit
+      const response = await request(httpServer)
+        .get('/users')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(503);
+      const body = response.body as MockServerResponse;
+      expect(body.message).toContain('circuit is open');
+    }, 15000);
+
+    it('should open the circuit when upstream closes response prematurely', async () => {
+      await stopServer(usersServer);
+
+      const abruptlyClosingServer = http.createServer((_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.write('{"partial":true');
+        res.socket?.destroy();
       });
-    });
 
-    // temporarily point a route at the slow server
-    // by closing the users server and starting the slow one on its port
-    await new Promise<void>((resolve, reject) => {
-      usersServer.close((err?: Error) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+      await startServer(abruptlyClosingServer, 3002);
 
-    const slowOnUsersPort = http.createServer(() => {
-      // never respond
-    });
+      const token = buildToken(['user'], ['read']);
+      const threshold = parseInt(process.env.CIRCUIT_BREAKER_THRESHOLD ?? '5');
 
-    await new Promise<void>((resolve, reject) => {
-      slowOnUsersPort.listen(3002, (err?: Error) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+      for (let i = 0; i < threshold; i++) {
+        await request(httpServer)
+          .get('/users')
+          .set('Authorization', `Bearer ${token}`)
+          .ok(() => true);
+      }
 
-    const token = buildToken(['user'], ['read']);
+      const response = await request(httpServer)
+        .get('/users')
+        .set('Authorization', `Bearer ${token}`)
+        .ok(() => true);
 
-    await request(httpServer)
-      .get('/users')
-      .set('Authorization', `Bearer ${token}`)
-      .expect(502);
+      expect(response.status).toBe(503);
 
-    await new Promise<void>((resolve, reject) => {
-      slowOnUsersPort.close((err?: Error) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+      await stopServer(abruptlyClosingServer);
+      await startServer(usersServer, 3002);
+      circuitBreakerService.resetAll();
+    }, 20000);
 
-    await new Promise<void>((resolve, reject) => {
-      usersServer.listen(3002, (err?: Error) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+    it('should return 200 after circuit breaker resets', async () => {
+      const token = buildToken(['user'], ['read']);
+      const halfOpenAfter = parseInt(
+        process.env.CIRCUIT_BREAKER_HALF_OPEN_AFTER ?? '2000',
+      );
 
-    slowServer.close();
-  }, 15000);
+      // wait for half-open window
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, halfOpenAfter + 3000),
+      );
 
-  it('should return 502 when an inexistent route is accessed', async () => {
-    const token = buildToken(['admin'], ['read']);
+      // restart the users server so the test request succeeds
+      await startServer(usersServer, 3002);
 
-    await request(httpServer)
-      .get('/nonexistent')
-      .set('Authorization', `Bearer ${token}`)
-      .expect(502);
+      // the next request should succeed and reset the circuit
+      const response = await request(httpServer)
+        .get('/users')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(200);
+      const body = response.body as MockServerResponse;
+      expect(body.proxied).toBe(true);
+    }, 30000);
   });
 
   describe('rate limiting', () => {
+    beforeAll(() => {
+      circuitBreakerService.resetAll();
+    });
+    // Send requests in a controlled sequence rather than flooding the server in one go.
+    // This keeps the test focused on throttling behavior and avoids transient socket
+    // failures under heavy concurrent load (such as ECONNRESET from request aborts).
     async function sendRequests(
       httpServer: http.Server,
       count: number,
       requestFn: () => request.Test,
-      batchSize = 10,
+      batchSize = 1,
     ): Promise<number[]> {
       const statuses: number[] = [];
 

@@ -12,6 +12,7 @@ export class MetricsService {
   private readonly requestCounter: Counter;
   private readonly latencyHistogram: Histogram;
   private readonly errorCounter: Counter;
+  private readonly circuitBreakerCounter: Counter;
 
   constructor() {
     this.registry = new Registry();
@@ -38,6 +39,13 @@ export class MetricsService {
       labelNames: ['method', 'path', 'status_code'],
       registers: [this.registry],
     });
+
+    this.circuitBreakerCounter = new Counter({
+      name: 'api_gateway_circuit_breaker_total',
+      help: 'Circuit breaker state transitions',
+      labelNames: ['state', 'target'],
+      registers: [this.registry],
+    });
   }
 
   incrementRequestCount(
@@ -50,6 +58,10 @@ export class MetricsService {
 
   incrementErrorCount(method: string, path: string, statusCode: number): void {
     this.errorCounter.inc({ method, path, status_code: statusCode });
+  }
+
+  incrementCircuitBreakerCounter(state: string, target: string): void {
+    this.circuitBreakerCounter.inc({ state, target });
   }
 
   recordLatency(

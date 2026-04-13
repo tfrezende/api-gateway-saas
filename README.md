@@ -11,7 +11,7 @@ This gateway sits between frontend clients and downstream services, handling cro
 Every incoming request flows through the following pipeline:
 
 ```
-Client → JwtGuard → RolesGuard → ThrottlerGuard → LoggingInterceptor → ProxyController → Downstream Service
+Client → JwtGuard → RolesGuard → ThrottlerGuard → LoggingInterceptor → ProxyController → CircuitBreaker → Downstream Service
 ```
 
 **Why the proxy lives in a controller, not middleware**
@@ -36,6 +36,7 @@ An invalid token should return `401` before consuming a user's rate limit quota.
 - **Structured logging** — JSON logs via Pino with request ID correlation, latency, and user context. Pretty-printed in development, raw JSON in production
 - **Prometheus metrics** — request rate, error rate, and latency histograms per route, exposed at `/metrics` behind an API key
 - **Grafana dashboard** — pre-configured dashboard showing request rate, error rate, p50/p99 latency, and rate limited requests
+- **Circuit breaking** — per-downstream-target circuit breaker that opens after a configurable number of consecutive failures and fast-fails with `503` until the target recovers. After a configurable wait, one probe request is allowed through; success closes the circuit, failure reopens it
 - **Consistent error responses** — all errors return a uniform JSON shape with status code, message, path, and timestamp
 - **Health and version endpoints** — gateway-internal endpoints that bypass auth and proxying
 
@@ -63,7 +64,11 @@ src/
 ├── proxy/
 |   ├── proxy.module.ts
 │   ├── proxy.controller.ts    # catches all routes, delegates to proxy service
-│   └── proxy.service.ts       # forwards requests to upstream via Node http module
+│   ├── proxy.service.ts       # forwards requests to upstream via Node http module
+│   └── circuit-breaker/
+│       ├── circuit-breaker.ts         # core state machine: CLOSED → OPEN → HALF_OPEN
+│       ├── circuit-breaker.service.ts # manages one CircuitBreaker instance per target
+│       └── circuit-breaker.config.ts  # reads threshold and half-open window from env
 ├── health/
 |   ├── health.module.ts
 │   └── health.controller.ts   # /healthcheck and /version endpoints
@@ -144,8 +149,10 @@ The gateway starts on `http://localhost:3000` by default.
 | `THROTTLER_IP_LIMIT` | `200` | Max requests per IP per window |
 | `THROTTLER_USER_TTL` | `60000` | User rate limit window in milliseconds |
 | `THROTTLER_USER_LIMIT` | `300` | Max requests per user per window |
+| `CIRCUIT_BREAKER_THRESHOLD` | `5` | Consecutive failures before the circuit opens |
+| `CIRCUIT_BREAKER_HALF_OPEN_AFTER` | `10000` | Milliseconds to wait before probing a recovering target |
 | `METRICS_API_KEY` | — | **Required.** API key for /metrics endpoint |
-| `LOG_LEVEL` | `info` | Pino log level (trace/debug/info/warn/error) |
+| `LOGGER_LEVEL` | `info` | Pino log level (trace/debug/info/warn/error) |
 | `NODE_ENV` | `development` | Enables pretty logging when not production |
 | `GRAFANA_PASSWORD` | `admin` | Grafana admin password |
 
@@ -181,17 +188,11 @@ No other files need to change — the guards and proxy service read from this co
 ## Running tests
 
 ```bash
-# unit tests with coverage
+# unit + integration tests with coverage
 npm run test
-
-# integration tests (requires Docker for Redis)
-npm run test:integration
-
-# both
-npm run test:all
 ```
 
-Coverage is collected separately for unit and integration tests. Unit tests cover guards, filters, interceptors, and services. Integration tests cover the full request lifecycle including proxying, header forwarding, auth enforcement, and rate limiting.
+Unit tests cover guards, filters, interceptors, and services. Integration tests cover the full request lifecycle including proxying, header forwarding, auth enforcement, and rate limiting.
 
 ## API reference
 
@@ -241,6 +242,40 @@ Downstream services receive the following headers on authenticated requests:
 
 Downstream services do not need to validate tokens — they can trust these headers since only the gateway has access to the JWT secret.
 
+## Circuit breaker
+
+Each downstream target gets its own circuit breaker instance. The circuit has three states:
+
+- **CLOSED** — normal operation. Requests pass through. Each failure increments a counter; a successful response resets it to zero.
+- **OPEN** — the circuit has tripped because the failure count hit the threshold. All requests to that target are immediately rejected with `503 Service Unavailable` without touching the network. After `CIRCUIT_BREAKER_HALF_OPEN_AFTER` milliseconds, the circuit moves to half-open.
+- **HALF_OPEN** — recovery probe. One request is allowed through. If it succeeds the circuit closes and traffic resumes normally. If it fails the circuit opens again and the timer resets. Any additional requests that arrive while the probe is in flight are rejected, not queued.
+
+The state machine looks like this:
+
+```
+             ┌─────────────────────────────────────────────────┐
+             │                    CLOSED                       │
+             │ Requests pass through. Counter resets on success│
+             └──────────────────┬──────────────────────────────┘
+                                │ failures >= threshold
+                                ▼
+             ┌─────────────────────────────────────────────────┐
+             │                     OPEN                        │
+             │  All requests rejected instantly with 503       │
+             └──────────────────┬──────────────────────────────┘
+                                │ halfOpenAfter elapsed
+                                ▼
+             ┌─────────────────────────────────────────────────┐
+             │                  HALF_OPEN                      │
+             │  One probe request allowed through              │
+             └──────┬──────────────────────────────┬───────────┘
+            success │                              │ failure
+                    ▼                              ▼
+                 CLOSED                          OPEN
+```
+
+State transitions are recorded as Prometheus metrics (`api_gateway_circuit_breaker_total`) so you can alert on circuits opening.
+
 ## Scraping metrics
  
 Prometheus scrapes `/metrics` using a Bearer token. To query metrics manually:
@@ -271,6 +306,7 @@ The following metrics are exposed at `/metrics`:
 | `api_gateway_requests_total` | Counter | Total requests by method, path, status code |
 | `api_gateway_errors_total` | Counter | Total errors by method, path, status code |
 | `api_gateway_request_latency_seconds` | Histogram | Request latency by method and path |
+| `api_gateway_circuit_breaker_total` | Counter | Circuit breaker state transitions by state (OPEN/HALF\_OPEN/CLOSED) and target |
  
 ### Grafana dashboard
  
@@ -286,10 +322,8 @@ The pre-configured dashboard at `http://localhost:3001` includes:
 
 These features are architecturally straightforward to add given the current structure:
 
-**Circuit breaking** — when a downstream service exceeds its failure threshold, the circuit opens and requests fail fast with a `503` instead of waiting for timeouts.
-
 **Per-route rate limiting** — extend `RouteConfig` with a `rateLimit` field (same pattern as `roles` and `scopes`) and override the global throttler config per route in a custom `ThrottlerGuard`.
 
 **Load balancing** — replace the static `target` in `RouteConfig` with a `targets` array and implement round-robin or weighted selection in `ProxyService`.
 
-**Service discovery** — populate route targets dynamically instead of from a static config file.
+**Multi-tenant service discovery** — populate route targets dynamically per tenant instead of from a static config file, keeping tenant isolation at the routing layer and letting services be provisioned or deprovisioned per tenant without a gateway redeployment.
