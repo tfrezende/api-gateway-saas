@@ -1,6 +1,6 @@
 # API Gateway
 
-A production-ready API Gateway built with NestJS, providing a single entry point for routing, authentication, rate limiting, and observability across multiple downstream services.
+A production-ready API Gateway built with NestJS, providing a single entry point for routing, authentication, rate limiting, circuit breaking, and observability across multiple downstream services.
 
 ## Overview
 
@@ -22,6 +22,9 @@ NestJS middleware runs before guards, which would mean requests get proxied befo
 
 **Why rate limiting runs after auth**
 An invalid token should return `401` before consuming a user's rate limit quota. Running `ThrottlerGuard` after `JwtGuard` and `RolesGuard` ensures auth failures are rejected early without touching the rate limiter.
+
+**Why circuit breaking runs at the proxy boundary**
+The circuit breaker is applied where outbound network calls happen, so it can fail fast when a downstream is unhealthy without bypassing auth, authorization, or throttling. This keeps protection scoped per target service while preserving the same request-validation behavior for every call.
 
 **Why metrics are collected in the interceptor and filter**
 `LoggingInterceptor` has visibility into every completed request — method, path, status code, and latency. `HttpExceptionFilter` has visibility into every error. These are the only two places in the pipeline where all the information needed for meaningful metrics is available simultaneously.
