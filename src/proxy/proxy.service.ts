@@ -58,6 +58,26 @@ export class ProxyService {
     target: string,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
+      let settled = false;
+
+      const settleResolve = () => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        resolve();
+      };
+
+      const settleReject = (err: Error) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        reject(err);
+      };
+
       const targetUrl = new URL(target);
 
       const options = {
@@ -80,17 +100,43 @@ export class ProxyService {
         response.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
         proxyRes.pipe(response, { end: true });
 
-        proxyRes.on('end', resolve);
-        proxyRes.on('error', reject);
+        proxyRes.on('end', settleResolve);
+        proxyRes.on('error', settleReject);
+        proxyRes.on('close', () => {
+          if (proxyRes.complete) {
+            settleResolve();
+            return;
+          }
+
+          settleReject(new Error('Upstream response closed prematurely'));
+        });
       });
 
       proxyReq.setTimeout(appConfig.proxy.timeout, () => {
         proxyReq.destroy();
-        reject(new Error('Upstream service timed out'));
+        settleReject(new Error('Upstream service timed out'));
       });
 
       proxyReq.on('error', (err: Error) => {
-        reject(err);
+        settleReject(err);
+      });
+
+      request.on('close', () => {
+        if (request.complete) {
+          return;
+        }
+
+        proxyReq.destroy();
+        settleReject(new Error('Client request closed before completion'));
+      });
+
+      response.on('close', () => {
+        if (response.writableEnded) {
+          return;
+        }
+
+        proxyReq.destroy();
+        settleReject(new Error('Client response closed before completion'));
       });
 
       request.pipe(proxyReq);
