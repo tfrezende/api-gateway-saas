@@ -10,7 +10,7 @@ export class ProxyController {
   constructor(private readonly proxyService: ProxyService) {}
 
   @All('*')
-  forward(@Req() request: Request, @Res() response: Response) {
-    this.proxyService.forward(request, response);
+  async forward(@Req() request: Request, @Res() response: Response) {
+    await this.proxyService.forward(request, response);
   }
 }

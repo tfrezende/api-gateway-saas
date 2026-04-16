@@ -13,8 +13,11 @@ export class ProxyService {
     private readonly circuitBreakerService: CircuitBreakerService,
   ) {}
 
-  forward(request: Request, response: Response) {
-    const route = this.routerMatcherService.matchRoute(request.path);
+  async forward(request: Request, response: Response) {
+    const route = await this.routerMatcherService.matchRoute(
+      request.path,
+      request.tenantId,
+    );
 
     if (!route || !route.target) {
       throw new BadGatewayException('No matching route found');

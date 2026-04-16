@@ -13,6 +13,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { HealthModule } from './health/health.module';
 import { appConfig } from './config/app.config';
 import { MetricsModule } from './metrics/metrics.module';
+import { TenantModule } from './tenant/tenant.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { MetricsModule } from './metrics/metrics.module';
     HealthModule,
     MetricsModule,
     ProxyModule,
+    TenantModule,
   ],
   providers: [
     {

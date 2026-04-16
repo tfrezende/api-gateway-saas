@@ -6,6 +6,7 @@ import { Role, Scope } from '../config/routes.config';
 export interface JwtPayload {
   sub: string;
   email: string;
+  tenantId?: string;
   roles: Role[];
   scopes: Scope[];
   iat: number;

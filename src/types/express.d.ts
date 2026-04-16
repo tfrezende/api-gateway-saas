@@ -6,6 +6,7 @@ declare global {
       user?: JwtPayload;
       requestId?: string;
       route?: { path?: string };
+      tenantId?: string;
     }
   }
 }

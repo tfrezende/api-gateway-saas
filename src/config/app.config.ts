@@ -54,4 +54,9 @@ export const appConfig = {
       ),
     };
   },
+  get tenant() {
+    return {
+      cacheTtlMs: parseInt(process.env.TENANT_CACHE_TTL_MS ?? '30000'),
+    };
+  },
 };

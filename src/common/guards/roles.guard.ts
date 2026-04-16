@@ -12,11 +12,11 @@ import { RouterMatcherService } from '../../shared/router-matcher.service';
 export class RolesGuard implements CanActivate {
   constructor(private readonly routerMatcherService: RouterMatcherService) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
-    const { path, method } = request;
+    const { path, method, tenantId } = request;
 
-    const route = this.routerMatcherService.matchRoute(path);
+    const route = await this.routerMatcherService.matchRoute(path, tenantId);
     if (!route) {
       return true;
     }
