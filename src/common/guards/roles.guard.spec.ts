@@ -67,66 +67,66 @@ describe('RolesGuard', () => {
   });
 
   describe('canActivate', () => {
-    it('should allow access to public routes', () => {
-      mockRouterMatcherService.matchRoute.mockReturnValue(mockRoutes.public);
+    it('should allow access to public routes', async () => {
+      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.public);
       const context = buildMockContext('POST', '/public');
-      expect(rolesGuard.canActivate(context)).toBe(true);
+      expect(await rolesGuard.canActivate(context)).toBe(true);
     });
 
-    it('should allow access to protected routes with valid roles and scopes', () => {
-      mockRouterMatcherService.matchRoute.mockReturnValue(mockRoutes.protected);
+    it('should allow access to protected routes with valid roles and scopes', async () => {
+      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
       const user = buildUser({ roles: ['user'], scopes: ['write'] });
       const context = buildMockContext('PATCH', '/protected', user);
-      expect(rolesGuard.canActivate(context)).toBe(true);
+      expect(await rolesGuard.canActivate(context)).toBe(true);
     });
 
-    it('should deny access to protected routes with insufficient roles', () => {
-      mockRouterMatcherService.matchRoute.mockReturnValue(mockRoutes.protected);
+    it('should deny access to protected routes with insufficient roles', async () => {
+      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
       const user = buildUser({ roles: ['guest'], scopes: ['write'] });
       const context = buildMockContext('PATCH', '/protected', user);
-      expect(() => rolesGuard.canActivate(context)).toThrow(ForbiddenException);
-      expect(() => rolesGuard.canActivate(context)).toThrow(
+      await expect(rolesGuard.canActivate(context)).rejects.toThrow(ForbiddenException);
+      await expect(rolesGuard.canActivate(context)).rejects.toThrow(
         'Insufficient permissions',
       );
     });
 
-    it('should deny access to protected routes with insufficient scopes', () => {
-      mockRouterMatcherService.matchRoute.mockReturnValue(mockRoutes.protected);
+    it('should deny access to protected routes with insufficient scopes', async () => {
+      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
       const user = buildUser({ roles: ['user'], scopes: ['read'] });
       const context = buildMockContext('PATCH', '/protected', user);
-      expect(() => rolesGuard.canActivate(context)).toThrow(ForbiddenException);
-      expect(() => rolesGuard.canActivate(context)).toThrow(
+      await expect(rolesGuard.canActivate(context)).rejects.toThrow(ForbiddenException);
+      await expect(rolesGuard.canActivate(context)).rejects.toThrow(
         'Insufficient permissions',
       );
     });
 
-    it('should allow access if no method config is defined', () => {
-      mockRouterMatcherService.matchRoute.mockReturnValue(mockRoutes.noConfig);
+    it('should allow access if no method config is defined', async () => {
+      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.noConfig);
       const user = buildUser();
       const context = buildMockContext('GET', '/no-config', user);
-      expect(rolesGuard.canActivate(context)).toBe(true);
+      expect(await rolesGuard.canActivate(context)).toBe(true);
     });
 
-    it('should allow access if no route config is found', () => {
-      mockRouterMatcherService.matchRoute.mockReturnValue(undefined);
+    it('should allow access if no route config is found', async () => {
+      mockRouterMatcherService.matchRoute.mockResolvedValue(undefined);
       const user = buildUser();
       const context = buildMockContext('GET', '/unknown', user);
-      expect(rolesGuard.canActivate(context)).toBe(true);
+      expect(await rolesGuard.canActivate(context)).toBe(true);
     });
 
-    it('should allow access if user is not authenticated but route is public', () => {
-      mockRouterMatcherService.matchRoute.mockReturnValue(mockRoutes.public);
+    it('should allow access if user is not authenticated but route is public', async () => {
+      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.public);
       const context = buildMockContext('POST', '/public');
-      expect(rolesGuard.canActivate(context)).toBe(true);
+      expect(await rolesGuard.canActivate(context)).toBe(true);
     });
 
-    it('should allow access if user is not authenticated and route has no config', () => {
-      mockRouterMatcherService.matchRoute.mockReturnValue(undefined);
+    it('should allow access if user is not authenticated and route has no config', async () => {
+      mockRouterMatcherService.matchRoute.mockResolvedValue(undefined);
       const context = buildMockContext('GET', '/no-config');
-      expect(rolesGuard.canActivate(context)).toBe(true);
+      expect(await rolesGuard.canActivate(context)).toBe(true);
     });
 
-    it('should allow access if route has no required roles', () => {
+    it('should allow access if route has no required roles', async () => {
       const routeWithoutRoles: RouteConfig = {
         path: '/route-without-roles',
         target: 'http://localhost:3000',
@@ -134,13 +134,13 @@ describe('RolesGuard', () => {
           GET: { isPublic: true },
         },
       };
-      mockRouterMatcherService.matchRoute.mockReturnValue(routeWithoutRoles);
+      mockRouterMatcherService.matchRoute.mockResolvedValue(routeWithoutRoles);
       const user = buildUser({ roles: ['guest'] });
       const context = buildMockContext('GET', '/route-without-roles', user);
-      expect(rolesGuard.canActivate(context)).toBe(true);
+      expect(await rolesGuard.canActivate(context)).toBe(true);
     });
 
-    it('should allow access if route has no required scopes', () => {
+    it('should allow access if route has no required scopes', async () => {
       const routeWithoutScopes: RouteConfig = {
         path: '/route-without-scopes',
         target: 'http://localhost:3000',
@@ -148,10 +148,10 @@ describe('RolesGuard', () => {
           GET: { isPublic: true },
         },
       };
-      mockRouterMatcherService.matchRoute.mockReturnValue(routeWithoutScopes);
+      mockRouterMatcherService.matchRoute.mockResolvedValue(routeWithoutScopes);
       const user = buildUser({ scopes: ['read'] });
       const context = buildMockContext('GET', '/route-without-scopes', user);
-      expect(rolesGuard.canActivate(context)).toBe(true);
+      expect(await rolesGuard.canActivate(context)).toBe(true);
     });
   });
 });

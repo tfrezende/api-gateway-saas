@@ -147,32 +147,32 @@ describe('ProxyService', () => {
   // ── Route matching ─────────────────────────────────────────────────
 
   describe('forward', () => {
-    it('should throw BadGatewayException when no matching route is found', () => {
-      mockRouterMatcherService.matchRoute.mockReturnValue(undefined);
+    it('should throw BadGatewayException when no matching route is found', async () => {
+      mockRouterMatcherService.matchRoute.mockResolvedValue(undefined);
 
-      expect(() => service.forward(buildRequest(), buildResponse())).toThrow(
-        BadGatewayException,
-      );
+      await expect(
+        service.forward(buildRequest(), buildResponse()),
+      ).rejects.toThrow(BadGatewayException);
     });
 
-    it('should throw BadGatewayException when route has no target', () => {
-      mockRouterMatcherService.matchRoute.mockReturnValue({ path: '/users' });
+    it('should throw BadGatewayException when route has no target', async () => {
+      mockRouterMatcherService.matchRoute.mockResolvedValue({ path: '/users' });
 
-      expect(() => service.forward(buildRequest(), buildResponse())).toThrow(
-        BadGatewayException,
-      );
+      await expect(
+        service.forward(buildRequest(), buildResponse()),
+      ).rejects.toThrow(BadGatewayException);
     });
 
-    it('should get circuit breaker for the route target', () => {
+    it('should get circuit breaker for the route target', async () => {
       const mockBreaker = {
         execute: jest.fn().mockResolvedValue(undefined),
       };
-      mockRouterMatcherService.matchRoute.mockReturnValue({
+      mockRouterMatcherService.matchRoute.mockResolvedValue({
         target: 'http://localhost:3002',
       });
       mockCircuitBreakerService.getCircuitBreaker.mockReturnValue(mockBreaker);
 
-      service.forward(buildRequest(), buildResponse());
+      await service.forward(buildRequest(), buildResponse());
 
       expect(mockCircuitBreakerService.getCircuitBreaker).toHaveBeenCalledWith(
         'http://localhost:3002',
@@ -187,7 +187,7 @@ describe('ProxyService', () => {
           .fn()
           .mockRejectedValue(new BrokenCircuitError('http://localhost:3002')),
       };
-      mockRouterMatcherService.matchRoute.mockReturnValue({
+      mockRouterMatcherService.matchRoute.mockResolvedValue({
         target: 'http://localhost:3002',
       });
       mockCircuitBreakerService.getCircuitBreaker.mockReturnValue(mockBreaker);
@@ -213,7 +213,7 @@ describe('ProxyService', () => {
           .fn()
           .mockRejectedValue(new BrokenCircuitError('http://localhost:3002')),
       };
-      mockRouterMatcherService.matchRoute.mockReturnValue({
+      mockRouterMatcherService.matchRoute.mockResolvedValue({
         target: 'http://localhost:3002',
       });
       mockCircuitBreakerService.getCircuitBreaker.mockReturnValue(mockBreaker);
@@ -235,7 +235,7 @@ describe('ProxyService', () => {
       const mockBreaker = {
         execute: jest.fn().mockRejectedValue(new Error('ECONNREFUSED')),
       };
-      mockRouterMatcherService.matchRoute.mockReturnValue({
+      mockRouterMatcherService.matchRoute.mockResolvedValue({
         target: 'http://localhost:3002',
       });
       mockCircuitBreakerService.getCircuitBreaker.mockReturnValue(mockBreaker);
@@ -259,7 +259,7 @@ describe('ProxyService', () => {
       const mockBreaker = {
         execute: jest.fn().mockRejectedValue(new Error('ECONNREFUSED')),
       };
-      mockRouterMatcherService.matchRoute.mockReturnValue({
+      mockRouterMatcherService.matchRoute.mockResolvedValue({
         target: 'http://localhost:3002',
       });
       mockCircuitBreakerService.getCircuitBreaker.mockReturnValue(mockBreaker);
@@ -277,16 +277,16 @@ describe('ProxyService', () => {
 
     // ── Circuit breaker execution ──────────────────────────────────
 
-    it('should call execute with a function', () => {
+    it('should call execute with a function', async () => {
       const mockBreaker = {
         execute: jest.fn().mockResolvedValue(undefined),
       };
-      mockRouterMatcherService.matchRoute.mockReturnValue({
+      mockRouterMatcherService.matchRoute.mockResolvedValue({
         target: 'http://localhost:3002',
       });
       mockCircuitBreakerService.getCircuitBreaker.mockReturnValue(mockBreaker);
 
-      service.forward(buildRequest(), buildResponse());
+      await service.forward(buildRequest(), buildResponse());
 
       expect(mockBreaker.execute).toHaveBeenCalledWith(expect.any(Function));
     });

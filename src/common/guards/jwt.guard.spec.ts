@@ -67,79 +67,80 @@ describe('JwtGuard', () => {
   });
 
   describe('canActivate', () => {
-    it('should allow access for public paths without token', () => {
+    it('should allow access for public paths without token', async () => {
       const context = buildMockContext('/healthcheck');
       context.switchToHttp().getRequest<{ user?: JwtPayload }>();
 
-      expect(jwtGuard.canActivate(context)).toBe(true);
+      expect(await jwtGuard.canActivate(context)).toBe(true);
       expect(mockJwtService.verifySignature).not.toHaveBeenCalled();
     });
 
-    it('should allow access for valid token', () => {
+    it('should allow access for valid token', async () => {
       mockJwtService.verifySignature.mockReturnValue(mockPayload);
-      mockRouterMatcherService.matchRoute.mockReturnValue(mockRoutes.protected);
+      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
       const token = 'Bearer valid.jwt.token';
       const context = buildMockContext('/protected', token);
       const request = context
         .switchToHttp()
         .getRequest<{ user?: JwtPayload }>();
 
-      expect(jwtGuard.canActivate(context)).toBe(true);
+      expect(await jwtGuard.canActivate(context)).toBe(true);
       expect(mockJwtService.verifySignature).toHaveBeenCalledWith(
         'valid.jwt.token',
       );
       expect(request.user).toEqual(mockPayload);
     });
 
-    it('should allow access for valid token with capitalized Authorization header', () => {
+    it('should allow access for valid token with capitalized Authorization header', async () => {
       mockJwtService.verifySignature.mockReturnValue(mockPayload);
-      mockRouterMatcherService.matchRoute.mockReturnValue(mockRoutes.protected);
+      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
       const token = 'Bearer valid.jwt.token';
       const context = buildMockContext('/protected', token, 'Authorization');
       const request = context
         .switchToHttp()
         .getRequest<{ user?: JwtPayload }>();
 
-      expect(jwtGuard.canActivate(context)).toBe(true);
+      expect(await jwtGuard.canActivate(context)).toBe(true);
       expect(mockJwtService.verifySignature).toHaveBeenCalledWith(
         'valid.jwt.token',
       );
       expect(request.user).toEqual(mockPayload);
     });
-    it('should throw UnauthorizedException for missing Authorization header', () => {
-      mockRouterMatcherService.matchRoute.mockReturnValue(mockRoutes.protected);
+
+    it('should throw UnauthorizedException for missing Authorization header', async () => {
+      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
       const context = buildMockContext('/protected');
       context.switchToHttp().getRequest<{ user?: JwtPayload }>();
 
-      expect(() => jwtGuard.canActivate(context)).toThrow(
+      await expect(jwtGuard.canActivate(context)).rejects.toThrow(
         UnauthorizedException,
       );
       expect(mockJwtService.verifySignature).not.toHaveBeenCalled();
     });
 
-    it('should throw UnauthorizedException for malformed Authorization header', () => {
-      mockRouterMatcherService.matchRoute.mockReturnValue(mockRoutes.protected);
+    it('should throw UnauthorizedException for malformed Authorization header', async () => {
+      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
       const token = 'InvalidHeader';
       const context = buildMockContext('/protected', token);
       context.switchToHttp().getRequest<{ user?: JwtPayload }>();
 
-      expect(() => jwtGuard.canActivate(context)).toThrow(
+      await expect(jwtGuard.canActivate(context)).rejects.toThrow(
         UnauthorizedException,
       );
       expect(mockJwtService.verifySignature).not.toHaveBeenCalled();
     });
 
-    it('should throw UnauthorizedException for invalid token', () => {
+    it('should throw UnauthorizedException for invalid token', async () => {
       mockJwtService.verifySignature.mockImplementation(() => {
         throw new UnauthorizedException('Invalid token');
       });
-      mockRouterMatcherService.matchRoute.mockReturnValue(mockRoutes.protected);
+      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
 
       const token = 'Bearer invalid.jwt.token';
       const context = buildMockContext('/protected', token);
       context.switchToHttp().getRequest<{ user?: JwtPayload }>();
 
-      expect(() => jwtGuard.canActivate(context)).toThrow(
+      await expect(jwtGuard.canActivate(context)).rejects.toThrow(
         UnauthorizedException,
       );
       expect(mockJwtService.verifySignature).toHaveBeenCalledWith(
@@ -147,17 +148,17 @@ describe('JwtGuard', () => {
       );
     });
 
-    it('should throw UnauthorizedException for expired token', () => {
+    it('should throw UnauthorizedException for expired token', async () => {
       mockJwtService.verifySignature.mockImplementation(() => {
         throw new UnauthorizedException('Token has expired');
       });
-      mockRouterMatcherService.matchRoute.mockReturnValue(mockRoutes.protected);
+      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
 
       const token = 'Bearer expired.jwt.token';
       const context = buildMockContext('/protected', token);
       context.switchToHttp().getRequest<{ user?: JwtPayload }>();
 
-      expect(() => jwtGuard.canActivate(context)).toThrow(
+      await expect(jwtGuard.canActivate(context)).rejects.toThrow(
         UnauthorizedException,
       );
       expect(mockJwtService.verifySignature).toHaveBeenCalledWith(
@@ -165,21 +166,21 @@ describe('JwtGuard', () => {
       );
     });
 
-    it('should not populate request.user for public paths', () => {
+    it('should not populate request.user for public paths', async () => {
       const context = buildMockContext('/version');
       const request = context
         .switchToHttp()
         .getRequest<{ user?: JwtPayload }>();
 
-      expect(jwtGuard.canActivate(context)).toBe(true);
+      expect(await jwtGuard.canActivate(context)).toBe(true);
       expect(request.user).toBeUndefined();
     });
 
-    it('should not populate request.user for invalid token', () => {
+    it('should not populate request.user for invalid token', async () => {
       mockJwtService.verifySignature.mockImplementation(() => {
         throw new UnauthorizedException('Invalid token');
       });
-      mockRouterMatcherService.matchRoute.mockReturnValue(mockRoutes.protected);
+      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
 
       const token = 'Bearer invalid.jwt.token';
       const context = buildMockContext('/protected', token);
@@ -187,7 +188,7 @@ describe('JwtGuard', () => {
         .switchToHttp()
         .getRequest<{ user?: JwtPayload }>();
 
-      expect(() => jwtGuard.canActivate(context)).toThrow(
+      await expect(jwtGuard.canActivate(context)).rejects.toThrow(
         UnauthorizedException,
       );
       expect(request.user).toBeUndefined();
