@@ -1,6 +1,6 @@
 # API Gateway
 
-A production-ready API Gateway built with NestJS, providing a single entry point for routing, authentication, rate limiting, circuit breaking, and observability across multiple downstream services.
+A production-ready API Gateway built with NestJS, providing a single entry point for routing, authentication, rate limiting, circuit breaking, observability, and multi-tenant service discovery across multiple downstream services.
 
 ## Overview
 
@@ -29,10 +29,20 @@ The circuit breaker is applied where outbound network calls happen, so it can fa
 **Why metrics are collected in the interceptor and filter**
 `LoggingInterceptor` has visibility into every completed request — method, path, status code, and latency. `HttpExceptionFilter` has visibility into every error. These are the only two places in the pipeline where all the information needed for meaningful metrics is available simultaneously.
 
+**Why tenant routes are stored in Redis and not a database**
+Route configuration is read on every request, so it needs to be fast. Redis gives sub-millisecond reads. A 30-second in-process cache on top of that means most requests never touch the network at all. A database would add a round-trip on every cache miss without meaningful durability benefit — route config changes infrequently and can be re-applied if lost.
+
+**Why the default tenant key pattern is used for non-tenant requests**
+Requests without a `tenantId` claim fall back to the `'default'` key in Redis rather than a separate static config. This keeps the routing logic in one place — `RouterMatcherService` always goes through `TenantRouteRegistryService` — and mirrors how Kong and similar gateways handle default route groups. It also means default routes can be updated at runtime via the same Admin API without a redeployment.
+
+**Why admin routes use a dedicated `AdminGuard` instead of `RolesGuard`**
+`RolesGuard` delegates authorization to `RouterMatcherService`, which looks up the route in the tenant registry. Admin routes are not registered in the registry — they are gateway-internal endpoints. `RolesGuard` would return `undefined` for them, silent-passing every request. `AdminGuard` validates the token directly and checks for the `admin` role without any route lookup.
+
 ## Features
 
-- **JWT authentication** — validates bearer tokens on all protected routes, extracts roles and scopes from claims
-- **Role and scope based authorization** — per-route, per-method access control defined in a central config file
+- **JWT authentication** — validates bearer tokens on all protected routes, extracts roles, scopes, and tenant identity from claims
+- **Role and scope based authorization** — per-route, per-method access control enforced at the guard layer
+- **Multi-tenant service discovery** — routes are stored in Redis per tenant and resolved at request time from a `tenantId` claim in the JWT. An Admin API allows provisioning and updating tenant routes without redeploying the gateway
 - **Dual rate limiting** — per-user ID when authenticated, per-IP as fallback, backed by Redis
 - **Request proxying** — forwards requests to downstream services using Node's native HTTP module, streaming request and response bodies without buffering
 - **User identity forwarding** — strips the JWT and injects `X-Auth-User-Id`, `X-Auth-User-Roles`, and `X-Auth-User-Scopes` headers for downstream services
@@ -81,11 +91,19 @@ src/
 │   ├── metrics.module.ts
 │   └── metrics.service.ts     # Prometheus counters and histograms
 ├── shared/
-|   ├── shared.module.ts
-│   └── route-matcher.service.ts  # path matching shared between guards and proxy
-│  
+│   ├── shared.module.ts
+│   ├── router-matcher.service.ts  # async path matching; resolves routes via tenant registry
+│   └── utils/
+│       ├── error.utils.ts         # toError helper and BrokenCircuitError
+│       └── token.utils.ts         # extractBearerToken shared by JwtGuard and AdminGuard
+├── tenant/
+│   ├── tenant.module.ts
+│   ├── tenant-route-registry.service.ts  # reads/writes tenant routes in Redis with in-process cache
+│   ├── redis.provider.ts          # ioredis client provider
+│   ├── admin.guard.ts             # validates JWT and checks for admin role on /admin/* routes
+│   └── admin.controller.ts        # Admin API for provisioning tenant routes
 └── types/
-    └── express.d.ts           # extends Express Request with user?: JwtPayload
+    └── express.d.ts               # extends Express Request with user and tenantId
 ```
 
 ## Getting started
@@ -155,38 +173,51 @@ The gateway starts on `http://localhost:3000` by default.
 | `CIRCUIT_BREAKER_THRESHOLD` | `5` | Consecutive failures before the circuit opens |
 | `CIRCUIT_BREAKER_HALF_OPEN_AFTER` | `10000` | Milliseconds to wait before probing a recovering target |
 | `METRICS_API_KEY` | — | **Required.** API key for /metrics endpoint |
+| `TENANT_CACHE_TTL_MS` | `30000` | How long tenant route configs are cached in-process (milliseconds) |
 | `LOGGER_LEVEL` | `info` | Pino log level (trace/debug/info/warn/error) |
 | `NODE_ENV` | `development` | Enables pretty logging when not production |
 | `GRAFANA_PASSWORD` | `admin` | Grafana admin password |
 
 ## Adding a route
 
-All routes are defined in `src/config/routes.config.ts`. Add an entry to the `routes` array:
+Routes are managed at runtime via the Admin API — no redeployment required. All write endpoints require a valid JWT with an `admin` role.
 
-```typescript
-{
-  path: '/api/orders',
-  target: 'http://localhost:3004',
-  methods: {
-    GET:  { roles: ['admin', 'user'], scopes: ['read'] },
-    POST: { roles: ['admin', 'user'], scopes: ['write'] },
-  },
-},
+**Add or replace all routes for a tenant (full upsert):**
+
+```bash
+curl -X PUT http://localhost:3000/admin/tenants/my-tenant/routes \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '[
+    { "path": "/api/orders", "target": "http://localhost:3004", "methods": { "GET": { "roles": ["user"], "scopes": ["read"] }, "POST": { "roles": ["user"], "scopes": ["write"] } } },
+    { "path": "/api/products", "target": "http://localhost:3005", "methods": { "GET": { "isPublic": true } } }
+  ]'
 ```
 
-Public routes that bypass JWT validation:
+**Add or update a single route (upsert by path):**
 
-```typescript
-{
-  path: '/api/products',
-  target: 'http://localhost:3005',
-  methods: {
-    GET: { isPublic: true },
-  },
-},
+```bash
+curl -X POST http://localhost:3000/admin/tenants/my-tenant/routes \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "path": "/api/orders", "target": "http://localhost:3004" }'
 ```
 
-No other files need to change — the guards and proxy service read from this config automatically.
+**Delete a single route:**
+
+```bash
+curl -X DELETE "http://localhost:3000/admin/tenants/my-tenant/routes?path=/api/orders" \
+  -H "Authorization: Bearer <admin-token>"
+```
+
+**Delete all routes for a tenant:**
+
+```bash
+curl -X DELETE http://localhost:3000/admin/tenants/my-tenant/routes \
+  -H "Authorization: Bearer <admin-token>"
+```
+
+The `tenantId` in the path must match the `tenantId` claim in the JWTs issued to that tenant's users. Requests from users without a `tenantId` claim are routed against the `default` tenant. Seed the `default` tenant to configure routing for non-tenant traffic.
 
 ## Running tests
 
@@ -208,6 +239,18 @@ These endpoints are served directly by the gateway and do not require authentica
 | `GET` | `/healthcheck` | Returns gateway health status |
 | `GET` | `/version` | Returns gateway name and version |
 | `GET` | `/metrics` | Prometheus metrics (requires `X-Metrics-Api-Key` header) |
+
+### Admin API
+
+All Admin API endpoints require a valid JWT with an `admin` role in the `Authorization: Bearer <token>` header.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/admin/tenants/:tenantId/routes` | Returns all routes for a tenant. `404` if none exist |
+| `PUT` | `/admin/tenants/:tenantId/routes` | Replaces all routes for a tenant with the request body (`RouteConfig[]`) |
+| `POST` | `/admin/tenants/:tenantId/routes` | Adds or updates a single route by path (`RouteConfig`) |
+| `DELETE` | `/admin/tenants/:tenantId/routes` | Deletes all routes for a tenant |
+| `DELETE` | `/admin/tenants/:tenantId/routes?path=<routePath>` | Deletes a single route by path |
 
 ### Error responses
 
@@ -328,5 +371,3 @@ These features are architecturally straightforward to add given the current stru
 **Per-route rate limiting** — extend `RouteConfig` with a `rateLimit` field (same pattern as `roles` and `scopes`) and override the global throttler config per route in a custom `ThrottlerGuard`.
 
 **Load balancing** — replace the static `target` in `RouteConfig` with a `targets` array and implement round-robin or weighted selection in `ProxyService`.
-
-**Multi-tenant service discovery** — populate route targets dynamically per tenant instead of from a static config file, keeping tenant isolation at the routing layer and letting services be provisioned or deprovisioned per tenant without a gateway redeployment.
