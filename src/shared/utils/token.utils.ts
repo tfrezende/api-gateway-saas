@@ -1,11 +1,11 @@
 import type { Request } from 'express';
 
 export function extractBearerToken(request: Request): string | null {
-  const authHeader =
-    (request.headers['authorization'] as string) ||
-    (request.headers['Authorization'] as string);
+  const raw =
+    request.headers['authorization'] ?? request.headers['Authorization'];
+  const authHeader = (Array.isArray(raw) ? raw[0] : raw)?.trim();
   if (!authHeader?.startsWith('Bearer ')) {
     return null;
   }
-  return authHeader.split(' ')[1];
+  return authHeader.slice('Bearer '.length);
 }

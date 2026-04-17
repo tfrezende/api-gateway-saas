@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type Redis from 'ioredis';
 import { RouteConfig } from '../config/routes.config';
 import { toError } from '../shared/utils/error.utils';
+import { appConfig } from '../config/app.config';
 
 @Injectable()
 export class TenantRouteRegistryService {
@@ -9,7 +10,6 @@ export class TenantRouteRegistryService {
     string,
     { routes: RouteConfig[]; expiresAt: number }
   >();
-  private readonly CACHE_TTL_MS = 30_000;
 
   constructor(@Inject('REDIS_CLIENT') private readonly redisClient: Redis) {}
 
@@ -17,8 +17,11 @@ export class TenantRouteRegistryService {
     const now = Date.now();
 
     const cached = this.cache.get(tenantId);
-    if (cached && cached.expiresAt > now) {
-      return cached.routes;
+    if (cached) {
+      if (cached.expiresAt > now) {
+        return cached.routes;
+      }
+      this.cache.delete(tenantId);
     }
 
     const redisKey = `tenant:${tenantId}:routes`;
@@ -31,7 +34,10 @@ export class TenantRouteRegistryService {
 
     try {
       const routes: RouteConfig[] = JSON.parse(routesJson) as RouteConfig[];
-      this.cache.set(tenantId, { routes, expiresAt: now + this.CACHE_TTL_MS });
+      this.cache.set(tenantId, {
+        routes,
+        expiresAt: now + appConfig.tenant.cacheTtlMs,
+      });
       return routes;
     } catch (error: unknown) {
       this.cache.delete(tenantId);
@@ -47,7 +53,7 @@ export class TenantRouteRegistryService {
 
     this.cache.set(tenantId, {
       routes,
-      expiresAt: Date.now() + this.CACHE_TTL_MS,
+      expiresAt: Date.now() + appConfig.tenant.cacheTtlMs,
     });
   }
 
