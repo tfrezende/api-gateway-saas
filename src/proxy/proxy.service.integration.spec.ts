@@ -7,6 +7,7 @@ import { createClient } from 'redis';
 import { AppModule } from '../app.module';
 import type { Role, Scope } from '../config/routes.config';
 import { CircuitBreakerService } from '../proxy/circuit-breaker/circuit-breaker.service';
+import { TenantRouteRegistryService } from '../tenant/tenant-route-registry.service';
 
 interface MockServerResponse {
   proxied: boolean;
@@ -22,6 +23,42 @@ interface MockServerResponse {
 }
 
 const TEST_SECRET = 'test-secret-that-is-long-enough-for-hmac';
+
+let registry: TenantRouteRegistryService;
+
+const seedDefaultRoutes = async (
+  reg: TenantRouteRegistryService,
+): Promise<void> => {
+  await reg.setRoutes('default', [
+    {
+      path: '/auth',
+      target: 'http://localhost:3001',
+      methods: { GET: { isPublic: true } },
+    },
+    {
+      path: '/users',
+      target: 'http://localhost:3002',
+      methods: {
+        GET: { roles: ['admin', 'user'], scopes: ['read'] },
+        POST: { roles: ['admin', 'user'], scopes: ['write'] },
+      },
+    },
+    {
+      path: '/users/:id',
+      target: 'http://localhost:3002',
+      methods: {
+        GET: { roles: ['admin', 'user'], scopes: ['read'] },
+        PUT: { roles: ['user'], scopes: ['write'] },
+        DELETE: { roles: ['admin'], scopes: ['delete'] },
+      },
+    },
+    {
+      path: '/unreachable',
+      target: 'http://localhost:9999',
+      methods: { GET: { roles: ['admin'], scopes: ['read'] } },
+    },
+  ]);
+};
 
 const buildToken = (
   roles: Role[] = ['user'],
@@ -120,6 +157,8 @@ describe('ProxyService (integration)', () => {
 
     app = moduleRef.createNestApplication();
     await app.init();
+    registry = app.get(TenantRouteRegistryService);
+    await seedDefaultRoutes(registry);
     httpServer = app.getHttpServer() as http.Server;
     circuitBreakerService = app.get(CircuitBreakerService, { strict: false });
   });
@@ -386,6 +425,7 @@ describe('ProxyService (integration)', () => {
     beforeAll(async () => {
       circuitBreakerService.resetAll();
       await flushRedis();
+      await seedDefaultRoutes(registry);
     });
 
     afterAll(async () => {

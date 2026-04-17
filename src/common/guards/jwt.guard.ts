@@ -1,4 +1,4 @@
-import { Request } from 'express';
+import type { Request } from 'express';
 import {
   CanActivate,
   ExecutionContext,
@@ -8,6 +8,7 @@ import {
 import { JwtService } from '../../auth/jwt.service';
 import { HttpMethod } from '../../config/routes.config';
 import { RouterMatcherService } from '../../shared/router-matcher.service';
+import { extractBearerToken } from '../../shared/utils/token.utils';
 
 @Injectable()
 export class JwtGuard implements CanActivate {
@@ -22,7 +23,7 @@ export class JwtGuard implements CanActivate {
     '/metrics',
   ];
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
     const { path, method } = request;
 
@@ -30,30 +31,26 @@ export class JwtGuard implements CanActivate {
       return true;
     }
 
-    const route = this.routeMatcher.matchRoute(path);
+    const token = extractBearerToken(request);
+    if (token) {
+      const payload = this.jwtService.verifySignature(token);
+      request.user = payload;
+      request.tenantId = payload.tenantId;
+    }
+
+    const route = await this.routeMatcher.matchRoute(path, request.tenantId);
     const methodConfig = route?.methods?.[method as HttpMethod];
 
     if (!route || !methodConfig || methodConfig.isPublic) {
       return true;
     }
 
-    const token = this.extractToken(request);
-    const payload = this.jwtService.verifySignature(token);
-
-    request.user = payload;
-
-    return true;
-  }
-
-  private extractToken(request: Request): string {
-    const authHeader =
-      (request.headers['authorization'] as string) ||
-      (request.headers['Authorization'] as string);
-    if (!authHeader?.startsWith('Bearer ')) {
+    if (!request.user) {
       throw new UnauthorizedException(
-        'Missing or malformed Authorization header',
+        'Authentication required to access this resource',
       );
     }
-    return authHeader.split(' ')[1];
+
+    return true;
   }
 }
