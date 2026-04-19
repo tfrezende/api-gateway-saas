@@ -1,6 +1,6 @@
 # API Gateway
 
-A production-ready API Gateway built with NestJS, providing a single entry point for routing, authentication, rate limiting, circuit breaking, observability, and multi-tenant service discovery across multiple downstream services.
+A production-ready API Gateway built with NestJS, providing a single entry point for routing, authentication, rate limiting, idempotency, circuit breaking, observability, and multi-tenant service discovery across multiple downstream services.
 
 ## Overview
 
@@ -11,7 +11,7 @@ This gateway sits between frontend clients and downstream services, handling cro
 Every incoming request flows through the following pipeline:
 
 ```
-Client → JwtGuard → RolesGuard → ThrottlerGuard → LoggingInterceptor → ProxyController → CircuitBreaker → Downstream Service
+Client → JwtGuard → RolesGuard → ThrottlerGuard → LoggingInterceptor → IdempotencyInterceptor → ProxyController → CircuitBreaker → Downstream Service
 ```
 
 **Why the proxy lives in a controller, not middleware**
@@ -50,6 +50,7 @@ Requests without a `tenantId` claim fall back to the `'default'` key in Redis ra
 - **Prometheus metrics** — request rate, error rate, and latency histograms per route, exposed at `/metrics` behind an API key
 - **Grafana dashboard** — pre-configured dashboard showing request rate, error rate, p50/p99 latency, and rate limited requests
 - **Circuit breaking** — per-downstream-target circuit breaker that opens after a configurable number of consecutive failures and fast-fails with `503` until the target recovers. After a configurable wait, one probe request is allowed through; success closes the circuit, failure reopens it
+- **Idempotency** — deduplicates mutating requests (POST, PUT, PATCH, DELETE) using a Redis-backed store. Clients can supply an `Idempotency-Key` header; without one, a SHA-256 hash of `tenantId:method:path:body` is used. Duplicate requests within the TTL window receive the original cached response with an `X-Idempotency-Replay: true` header. Concurrent in-flight requests for the same key return `409 Conflict`. Individual routes can opt out via `skipIdempotency: true` in the route config
 - **Consistent error responses** — all errors return a uniform JSON shape with status code, message, path, and timestamp
 - **Health and version endpoints** — gateway-internal endpoints that bypass auth and proxying
 
@@ -71,7 +72,9 @@ src/
 │   │   ├── roles.guard.ts     # enforces per-route role and scope requirements
 │   │   └── throttler.guard.ts # dual key rate limiting (user ID / IP fallback)
 │   ├── interceptors/
-│   │   └── logging.interceptor.ts  # request/response logging with latency
+│   │   ├── logging.interceptor.ts       # request/response logging with latency
+│   │   ├── idempotency.interceptor.ts   # deduplicates mutating requests via Redis
+│   │   └── idempotency-store.service.ts # Redis-backed key/value store for idempotency
 │   └── filters/
 │       └── http-exception.filter.ts  # global error handler, uniform JSON responses
 ├── proxy/
@@ -174,6 +177,8 @@ The gateway starts on `http://localhost:3000` by default.
 | `CIRCUIT_BREAKER_HALF_OPEN_AFTER` | `10000` | Milliseconds to wait before probing a recovering target |
 | `METRICS_API_KEY` | — | **Required.** API key for /metrics endpoint |
 | `TENANT_CACHE_TTL_MS` | `30000` | How long tenant route configs are cached in-process (milliseconds) |
+| `IDEMPOTENCY_TTL_MS` | `86400000` | How long a cached idempotent response is kept in Redis (milliseconds) |
+| `IDEMPOTENCY_PROCESSING_TTL_MS` | `30000` | How long an in-flight request sentinel is held before expiring (milliseconds) |
 | `LOGGER_LEVEL` | `info` | Pino log level (trace/debug/info/warn/error) |
 | `NODE_ENV` | `development` | Enables pretty logging when not production |
 | `GRAFANA_PASSWORD` | `admin` | Grafana admin password |
@@ -321,6 +326,35 @@ The state machine looks like this:
 ```
 
 State transitions are recorded as Prometheus metrics (`api_gateway_circuit_breaker_total`) so you can alert on circuits opening.
+
+## Idempotency
+
+Mutating requests (POST, PUT, PATCH, DELETE) are automatically deduplicated. On the first request the interceptor stores the response in Redis. Any identical repeat request within the TTL window receives the cached response immediately without touching the upstream, with an `X-Idempotency-Replay: true` header added.
+
+### Key resolution
+
+If the client sends an `Idempotency-Key` header, that value is used as the key (scoped per tenant). If no header is sent, the key is derived automatically as a SHA-256 hash of `tenantId:method:path:body` — so identical payloads to the same route are deduplicated even without client cooperation.
+
+### Concurrent requests
+
+If two requests with the same key arrive simultaneously (before the first one completes), the second receives `409 Conflict`. Once the first request finishes the cached response is available for subsequent requests.
+
+### Opting out
+
+Individual routes can bypass idempotency by setting `skipIdempotency: true` in the route config:
+
+```json
+{ "path": "/api/events", "target": "http://localhost:3004", "skipIdempotency": true, "methods": { "POST": { "roles": ["user"] } } }
+```
+
+Use this for endpoints that are intentionally non-idempotent (e.g. event streams, fire-and-forget webhooks).
+
+### Headers
+
+| Header | Direction | Description |
+|---|---|---|
+| `Idempotency-Key` | Request | Client-supplied deduplication key |
+| `X-Idempotency-Replay` | Response | Present and set to `true` on replayed responses |
 
 ## Scraping metrics
  

@@ -77,7 +77,9 @@ describe('JwtGuard', () => {
 
     it('should allow access for valid token', async () => {
       mockJwtService.verifySignature.mockReturnValue(mockPayload);
-      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
+      mockRouterMatcherService.matchRoute.mockResolvedValue(
+        mockRoutes.protected,
+      );
       const token = 'Bearer valid.jwt.token';
       const context = buildMockContext('/protected', token);
       const request = context
@@ -93,7 +95,9 @@ describe('JwtGuard', () => {
 
     it('should allow access for valid token with capitalized Authorization header', async () => {
       mockJwtService.verifySignature.mockReturnValue(mockPayload);
-      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
+      mockRouterMatcherService.matchRoute.mockResolvedValue(
+        mockRoutes.protected,
+      );
       const token = 'Bearer valid.jwt.token';
       const context = buildMockContext('/protected', token, 'Authorization');
       const request = context
@@ -108,7 +112,9 @@ describe('JwtGuard', () => {
     });
 
     it('should throw UnauthorizedException for missing Authorization header', async () => {
-      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
+      mockRouterMatcherService.matchRoute.mockResolvedValue(
+        mockRoutes.protected,
+      );
       const context = buildMockContext('/protected');
       context.switchToHttp().getRequest<{ user?: JwtPayload }>();
 
@@ -119,7 +125,9 @@ describe('JwtGuard', () => {
     });
 
     it('should throw UnauthorizedException for malformed Authorization header', async () => {
-      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
+      mockRouterMatcherService.matchRoute.mockResolvedValue(
+        mockRoutes.protected,
+      );
       const token = 'InvalidHeader';
       const context = buildMockContext('/protected', token);
       context.switchToHttp().getRequest<{ user?: JwtPayload }>();
@@ -134,7 +142,9 @@ describe('JwtGuard', () => {
       mockJwtService.verifySignature.mockImplementation(() => {
         throw new UnauthorizedException('Invalid token');
       });
-      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
+      mockRouterMatcherService.matchRoute.mockResolvedValue(
+        mockRoutes.protected,
+      );
 
       const token = 'Bearer invalid.jwt.token';
       const context = buildMockContext('/protected', token);
@@ -152,7 +162,9 @@ describe('JwtGuard', () => {
       mockJwtService.verifySignature.mockImplementation(() => {
         throw new UnauthorizedException('Token has expired');
       });
-      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
+      mockRouterMatcherService.matchRoute.mockResolvedValue(
+        mockRoutes.protected,
+      );
 
       const token = 'Bearer expired.jwt.token';
       const context = buildMockContext('/protected', token);
@@ -180,7 +192,9 @@ describe('JwtGuard', () => {
       mockJwtService.verifySignature.mockImplementation(() => {
         throw new UnauthorizedException('Invalid token');
       });
-      mockRouterMatcherService.matchRoute.mockResolvedValue(mockRoutes.protected);
+      mockRouterMatcherService.matchRoute.mockResolvedValue(
+        mockRoutes.protected,
+      );
 
       const token = 'Bearer invalid.jwt.token';
       const context = buildMockContext('/protected', token);

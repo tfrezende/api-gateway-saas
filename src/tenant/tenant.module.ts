@@ -14,6 +14,6 @@ import { AuthModule } from '../auth/auth.module';
     TenantRouteRegistryService,
     AdminGuard,
   ],
-  exports: [TenantRouteRegistryService],
+  exports: [TenantRouteRegistryService, RedisClientService, RedisProvider],
 })
 export class TenantModule {}
