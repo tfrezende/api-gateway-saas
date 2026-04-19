@@ -26,6 +26,7 @@ describe('appConfig', () => {
     delete process.env.CIRCUIT_BREAKER_HALF_OPEN_AFTER;
     delete process.env.IDEMPOTENCY_TTL_MS;
     delete process.env.IDEMPOTENCY_PROCESSING_TTL_MS;
+    delete process.env.CORS_ORIGIN;
   });
 
   afterAll(() => {
@@ -64,6 +65,7 @@ describe('appConfig', () => {
       ttlMs: 86400000,
       processingTtlMs: 30000,
     });
+    expect(appConfig.cors).toEqual({ origins: [] });
   });
 
   it('returns configured values from environment variables', () => {
@@ -83,6 +85,8 @@ describe('appConfig', () => {
     process.env.CIRCUIT_BREAKER_HALF_OPEN_AFTER = '45000';
     process.env.IDEMPOTENCY_TTL_MS = '3600000';
     process.env.IDEMPOTENCY_PROCESSING_TTL_MS = '60000';
+    process.env.CORS_ORIGIN =
+      'https://app.example.com, https://admin.example.com';
 
     const { appConfig } = loadAppConfig();
 
@@ -106,6 +110,9 @@ describe('appConfig', () => {
     expect(appConfig.idempotency).toEqual({
       ttlMs: 3600000,
       processingTtlMs: 60000,
+    });
+    expect(appConfig.cors).toEqual({
+      origins: ['https://app.example.com', 'https://admin.example.com'],
     });
   });
 });
