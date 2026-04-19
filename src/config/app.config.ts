@@ -67,4 +67,10 @@ export const appConfig = {
       ),
     };
   },
+  get cors() {
+    const raw = process.env.CORS_ORIGIN ?? '';
+    return {
+      origins: raw ? raw.split(',').map((o) => o.trim()) : [],
+    };
+  },
 };
