@@ -561,4 +561,71 @@ describe('ProxyService (integration)', () => {
       expect(statuses).toContain(429);
     });
   });
+
+  describe('idempotency', () => {
+    beforeAll(async () => {
+      circuitBreakerService.resetAll();
+      await flushRedis();
+      await seedDefaultRoutes(registry);
+    });
+
+    it('should replay the cached response for a duplicate Idempotency-Key', async () => {
+      const token = buildToken(['admin', 'user'], ['read', 'write', 'delete']);
+
+      const first = await request(httpServer)
+        .post('/users')
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', 'ledger-tx-001')
+        .send({ amount: 100 });
+
+      expect(first.status).toBe(200);
+      expect(first.headers['x-idempotency-replay']).toBeUndefined();
+
+      const second = await request(httpServer)
+        .post('/users')
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', 'ledger-tx-001')
+        .send({ amount: 100 });
+
+      expect(second.status).toBe(200);
+      expect(second.headers['x-idempotency-replay']).toBe('true');
+      expect(second.body).toEqual(first.body);
+    });
+
+    it('should not replay GET requests', async () => {
+      const token = buildToken(['user'], ['read']);
+
+      await request(httpServer)
+        .get('/users')
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', 'get-key-001');
+
+      const second = await request(httpServer)
+        .get('/users')
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', 'get-key-001');
+
+      expect(second.headers['x-idempotency-replay']).toBeUndefined();
+    });
+
+    it('should replay via hash fallback when no Idempotency-Key header is sent', async () => {
+      const token = buildToken(['admin', 'user'], ['read', 'write', 'delete']);
+      const body = { amount: 999 };
+
+      const first = await request(httpServer)
+        .post('/users')
+        .set('Authorization', `Bearer ${token}`)
+        .send(body);
+
+      expect(first.status).toBe(200);
+
+      const second = await request(httpServer)
+        .post('/users')
+        .set('Authorization', `Bearer ${token}`)
+        .send(body);
+
+      expect(second.status).toBe(200);
+      expect(second.headers['x-idempotency-replay']).toBe('true');
+    });
+  });
 });

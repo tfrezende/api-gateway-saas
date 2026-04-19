@@ -5,10 +5,7 @@ import {
   CallHandler,
   ConflictException,
 } from '@nestjs/common';
-import {
-  IdempotencyStoreService,
-  StoredResponse,
-} from './idempotency-store.service';
+import { IdempotencyStoreService } from './idempotency-store.service';
 import { RouterMatcherService } from '../../shared/router-matcher.service';
 import { Observable, EMPTY, catchError, mergeMap } from 'rxjs';
 import type { Request, Response } from 'express';
@@ -16,6 +13,16 @@ import { createHash } from 'crypto';
 import { appConfig } from '../../config/app.config';
 
 const IDEMPOTENT_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+// Headers that are specific to a single transport hop and must not be replayed.
+const HOP_BY_HOP = new Set([
+  'transfer-encoding',
+  'connection',
+  'keep-alive',
+  'te',
+  'trailers',
+  'upgrade',
+]);
 
 @Injectable()
 export class IdempotencyInterceptor implements NestInterceptor {
@@ -69,6 +76,11 @@ export class IdempotencyInterceptor implements NestInterceptor {
     await this.store.setProcessing(redisKey);
 
     const chunks: Buffer[] = [];
+    let resolveBody!: (body: string) => void;
+    const bodyPromise = new Promise<string>((resolve) => {
+      resolveBody = resolve;
+    });
+
     const originalWrite = response.write.bind(
       response,
     ) as typeof response.write;
@@ -89,27 +101,30 @@ export class IdempotencyInterceptor implements NestInterceptor {
           Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string),
         );
       }
+      resolveBody(Buffer.concat(chunks).toString('utf8'));
       return (originalEnd as (...a: unknown[]) => Response)(chunk, ...args);
     };
 
     return next.handle().pipe(
-      mergeMap(async () => {
-        const body = Buffer.concat(chunks).toString('utf8');
+      mergeMap(async (value) => {
+        // Wait for response.end() to be called — streaming may finish
+        // after next.handle() emits because ProxyService.forward() is fire-and-forget.
+        const body = await bodyPromise;
 
         const headers: Record<string, string> = {};
-        for (const [key, value] of Object.entries(response.getHeaders())) {
-          if (typeof value === 'string') headers[key] = value;
-          else if (typeof value === 'number') headers[key] = String(value);
-          else if (Array.isArray(value)) headers[key] = value[0];
+        for (const [key, val] of Object.entries(response.getHeaders())) {
+          if (HOP_BY_HOP.has(key.toLowerCase())) continue;
+          if (typeof val === 'string') headers[key] = val;
+          else if (typeof val === 'number') headers[key] = String(val);
+          else if (Array.isArray(val)) headers[key] = val[0];
         }
 
-        const stored: StoredResponse = {
-          statusCode: response.statusCode,
-          headers,
-          body,
-        };
-
-        await this.store.set(redisKey, stored, appConfig.idempotency.ttlMs);
+        await this.store.set(
+          redisKey,
+          { statusCode: response.statusCode, headers, body },
+          appConfig.idempotency.ttlMs,
+        );
+        return value as unknown;
       }),
       catchError(async (err: unknown) => {
         await this.store.delete(redisKey);

@@ -1,4 +1,8 @@
-import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import {
+  ExecutionContext,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { AdminGuard } from './admin.guard';
 import { JwtService, JwtPayload } from '../auth/jwt.service';
 
@@ -57,13 +61,17 @@ describe('AdminGuard', () => {
   });
 
   it('should throw ForbiddenException when token is valid but user is not admin', () => {
-    mockJwtService.verifySignature.mockReturnValue(buildPayload({ roles: ['user'] }));
+    mockJwtService.verifySignature.mockReturnValue(
+      buildPayload({ roles: ['user'] }),
+    );
     const context = buildMockContext('Bearer valid.token');
     expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
   });
 
   it('should return true when token is valid and user has admin role', () => {
-    mockJwtService.verifySignature.mockReturnValue(buildPayload({ roles: ['admin'] }));
+    mockJwtService.verifySignature.mockReturnValue(
+      buildPayload({ roles: ['admin'] }),
+    );
     const context = buildMockContext('Bearer valid.token');
     expect(guard.canActivate(context)).toBe(true);
   });

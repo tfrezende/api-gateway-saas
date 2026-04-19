@@ -3,6 +3,7 @@ describe('appConfig', () => {
 
   const loadAppConfig = () => {
     jest.resetModules();
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require('./app.config') as typeof import('./app.config');
   };
 
