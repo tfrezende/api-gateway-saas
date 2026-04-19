@@ -21,14 +21,15 @@ export class IdempotencyStoreService {
     return JSON.parse(raw) as StoredResponse;
   }
 
-  async setProcessing(key: string): Promise<void> {
-    await this.redisClient.set(
+  async setProcessing(key: string): Promise<boolean> {
+    const result = await this.redisClient.set(
       key,
       PROCESSING_SENTINEL,
       'PX',
       appConfig.idempotency.processingTtlMs,
       'NX',
     );
+    return result === 'OK';
   }
 
   async set(key: string, value: StoredResponse, ttlMs: number): Promise<void> {

@@ -24,6 +24,8 @@ describe('appConfig', () => {
     delete process.env.METRICS_API_KEY;
     delete process.env.CIRCUIT_BREAKER_THRESHOLD;
     delete process.env.CIRCUIT_BREAKER_HALF_OPEN_AFTER;
+    delete process.env.IDEMPOTENCY_TTL_MS;
+    delete process.env.IDEMPOTENCY_PROCESSING_TTL_MS;
   });
 
   afterAll(() => {
@@ -58,6 +60,10 @@ describe('appConfig', () => {
       threshold: 5,
       halfOpenAfter: 10000,
     });
+    expect(appConfig.idempotency).toEqual({
+      ttlMs: 86400000,
+      processingTtlMs: 30000,
+    });
   });
 
   it('returns configured values from environment variables', () => {
@@ -75,6 +81,8 @@ describe('appConfig', () => {
     process.env.METRICS_API_KEY = 'metrics-key';
     process.env.CIRCUIT_BREAKER_THRESHOLD = '9';
     process.env.CIRCUIT_BREAKER_HALF_OPEN_AFTER = '45000';
+    process.env.IDEMPOTENCY_TTL_MS = '3600000';
+    process.env.IDEMPOTENCY_PROCESSING_TTL_MS = '60000';
 
     const { appConfig } = loadAppConfig();
 
@@ -94,6 +102,10 @@ describe('appConfig', () => {
     expect(appConfig.circuitBreaker).toEqual({
       threshold: 9,
       halfOpenAfter: 45000,
+    });
+    expect(appConfig.idempotency).toEqual({
+      ttlMs: 3600000,
+      processingTtlMs: 60000,
     });
   });
 });

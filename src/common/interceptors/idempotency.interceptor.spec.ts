@@ -8,6 +8,7 @@ import {
   StoredResponse,
 } from './idempotency-store.service';
 import { RouterMatcherService } from '../../shared/router-matcher.service';
+import { JwtPayload } from '../../auth/jwt.service';
 
 const mockStore = {
   get: jest.fn(),
@@ -33,6 +34,7 @@ const buildContext = (
     method,
     path: '/transactions',
     tenantId: 'tenant-1',
+    user: { sub: 'user-1' } as unknown as JwtPayload,
     headers: {},
     body: { amount: 100 },
     ...overrides,
@@ -89,8 +91,12 @@ describe('IdempotencyInterceptor', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockRouterMatcher.matchRoute.mockResolvedValue(null);
-    mockStore.setProcessing.mockResolvedValue(undefined);
+    mockRouterMatcher.matchRoute.mockResolvedValue({
+      path: '/transactions',
+      target: 'http://upstream',
+      methods: {},
+    });
+    mockStore.setProcessing.mockResolvedValue(true);
     mockStore.set.mockResolvedValue(undefined);
     mockStore.delete.mockResolvedValue(undefined);
     interceptor = new IdempotencyInterceptor(
@@ -125,6 +131,28 @@ describe('IdempotencyInterceptor', () => {
       const { context } = buildContext('POST');
       const next = buildHandler();
       const obs = await interceptor.intercept(context, next);
+      await new Promise<void>((resolve) =>
+        obs.subscribe({ complete: resolve }),
+      );
+      expect(mockStore.get).not.toHaveBeenCalled();
+    });
+
+    it('should skip non-proxy routes when matchRoute returns null', async () => {
+      mockRouterMatcher.matchRoute.mockResolvedValue(null);
+      const { context } = buildContext('POST');
+      const obs = await interceptor.intercept(context, buildHandler());
+      await new Promise<void>((resolve) =>
+        obs.subscribe({ complete: resolve }),
+      );
+      expect(mockStore.get).not.toHaveBeenCalled();
+    });
+
+    it('should skip hash-fallback for unauthenticated requests with no explicit key', async () => {
+      const { context } = buildContext('POST', {
+        user: undefined,
+        headers: {},
+      });
+      const obs = await interceptor.intercept(context, buildHandler());
       await new Promise<void>((resolve) =>
         obs.subscribe({ complete: resolve }),
       );
@@ -187,7 +215,7 @@ describe('IdempotencyInterceptor', () => {
       );
 
       expect(mockStore.setProcessing).toHaveBeenCalledWith(
-        'idempotency:tenant-1:key-abc',
+        'idempotency:tenant-1:user-1:key-abc',
       );
     });
 
@@ -206,7 +234,7 @@ describe('IdempotencyInterceptor', () => {
       );
 
       expect(mockStore.set).toHaveBeenCalledWith(
-        'idempotency:tenant-1:key-abc',
+        'idempotency:tenant-1:user-1:key-abc',
         expect.objectContaining({ statusCode: 201 }),
         expect.any(Number),
       );
@@ -227,7 +255,7 @@ describe('IdempotencyInterceptor', () => {
       });
 
       expect(mockStore.delete).toHaveBeenCalledWith(
-        'idempotency:tenant-1:key-abc',
+        'idempotency:tenant-1:user-1:key-abc',
       );
       expect(mockStore.set).not.toHaveBeenCalled();
     });
@@ -254,7 +282,7 @@ describe('IdempotencyInterceptor', () => {
       );
 
       expect(mockStore.set).toHaveBeenCalledWith(
-        'idempotency:tenant-1:key-chunk',
+        'idempotency:tenant-1:user-1:key-chunk',
         expect.objectContaining({ body: '{"id":2}' }),
         expect.any(Number),
       );
@@ -278,7 +306,7 @@ describe('IdempotencyInterceptor', () => {
       );
 
       expect(mockStore.set).toHaveBeenCalledWith(
-        'idempotency:tenant-1:key-num-header',
+        'idempotency:tenant-1:user-1:key-num-header',
         expect.objectContaining({ headers: { 'content-length': '42' } }),
         expect.any(Number),
       );
@@ -302,10 +330,21 @@ describe('IdempotencyInterceptor', () => {
       );
 
       expect(mockStore.set).toHaveBeenCalledWith(
-        'idempotency:tenant-1:key-arr-header',
+        'idempotency:tenant-1:user-1:key-arr-header',
         expect.objectContaining({ headers: { 'set-cookie': 'a=1' } }),
         expect.any(Number),
       );
+    });
+
+    it('should throw ConflictException when setProcessing returns false (race condition)', async () => {
+      mockStore.get.mockResolvedValue(null);
+      mockStore.setProcessing.mockResolvedValue(false);
+      const { context } = buildContext('POST', {
+        headers: { 'idempotency-key': 'key-race' },
+      });
+      await expect(
+        interceptor.intercept(context, buildHandler()),
+      ).rejects.toThrow(ConflictException);
     });
   });
 });

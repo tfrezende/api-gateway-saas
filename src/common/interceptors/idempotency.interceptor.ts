@@ -20,7 +20,7 @@ const HOP_BY_HOP = new Set([
   'connection',
   'keep-alive',
   'te',
-  'trailers',
+  'trailer',
   'upgrade',
 ]);
 
@@ -47,13 +47,24 @@ export class IdempotencyInterceptor implements NestInterceptor {
       request.tenantId,
     );
 
-    if (route?.skipIdempotency) {
+    // Skip when the route is not a known proxy route (e.g. internal /admin/* endpoints)
+    // or when the route has explicitly opted out of idempotency.
+    if (!route || route.skipIdempotency) {
       return next.handle();
     }
 
     const tenantId = request.tenantId || 'default';
+    const userId = request.user?.sub;
+    const explicitKey = request.headers['idempotency-key'];
+
+    // Hash-fallback idempotency without an authenticated user risks cross-user collisions.
+    // Skip idempotency for anonymous requests that didn't supply an explicit key.
+    if (!explicitKey && !userId) {
+      return next.handle();
+    }
+
     const idempotencyKey = this.resolveKey(request);
-    const redisKey = `idempotency:${tenantId}:${idempotencyKey}`;
+    const redisKey = `idempotency:${tenantId}:${userId ?? 'anon'}:${idempotencyKey}`;
 
     const cached = await this.store.get(redisKey);
 
@@ -73,7 +84,12 @@ export class IdempotencyInterceptor implements NestInterceptor {
       return EMPTY;
     }
 
-    await this.store.setProcessing(redisKey);
+    const acquired = await this.store.setProcessing(redisKey);
+    if (!acquired) {
+      throw new ConflictException(
+        'A request with the same idempotency key is currently being processed',
+      );
+    }
 
     const chunks: Buffer[] = [];
     let resolveBody!: (body: string) => void;

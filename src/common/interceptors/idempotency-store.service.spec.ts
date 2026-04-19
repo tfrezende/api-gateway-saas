@@ -40,9 +40,10 @@ describe('IdempotencyStoreService', () => {
   });
 
   describe('setProcessing()', () => {
-    it('should call SET with NX and 30s TTL', async () => {
+    it('should call SET with NX and 30s TTL and return true when acquired', async () => {
       mockRedis.set.mockResolvedValue('OK');
-      await service.setProcessing('key');
+      const result = await service.setProcessing('key');
+      expect(result).toBe(true);
       expect(mockRedis.set).toHaveBeenCalledWith(
         'key',
         'processing',
@@ -50,6 +51,12 @@ describe('IdempotencyStoreService', () => {
         30_000,
         'NX',
       );
+    });
+
+    it('should return false when NX lock is already held', async () => {
+      mockRedis.set.mockResolvedValue(null);
+      const result = await service.setProcessing('key');
+      expect(result).toBe(false);
     });
   });
 
