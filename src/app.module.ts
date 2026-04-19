@@ -14,6 +14,8 @@ import { HealthModule } from './health/health.module';
 import { appConfig } from './config/app.config';
 import { MetricsModule } from './metrics/metrics.module';
 import { TenantModule } from './tenant/tenant.module';
+import { IdempotencyInterceptor } from './common/interceptors/idempotency.interceptor';
+import { IdempotencyStoreService } from './common/interceptors/idempotency-store.service';
 
 @Module({
   imports: [
@@ -63,6 +65,11 @@ import { TenantModule } from './tenant/tenant.module';
       provide: APP_FILTER,
       useClass: HttpExceptionFilter,
     },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: IdempotencyInterceptor,
+    },
+    IdempotencyStoreService,
   ],
 })
 export class AppModule {}

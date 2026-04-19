@@ -59,4 +59,12 @@ export const appConfig = {
       cacheTtlMs: parseInt(process.env.TENANT_CACHE_TTL_MS ?? '30000'),
     };
   },
+  get idempotency() {
+    return {
+      ttlMs: parseInt(process.env.IDEMPOTENCY_TTL_MS ?? '86400000'),
+      processingTtlMs: parseInt(
+        process.env.IDEMPOTENCY_PROCESSING_TTL_MS ?? '30000',
+      ),
+    };
+  },
 };

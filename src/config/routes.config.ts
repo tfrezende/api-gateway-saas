@@ -12,4 +12,5 @@ export interface RouteConfig {
   path: string;
   target: string;
   methods?: Partial<Record<HttpMethod, MethodConfig>>;
+  skipIdempotency?: boolean;
 }
