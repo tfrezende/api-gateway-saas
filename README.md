@@ -6,6 +6,22 @@ A production-ready API Gateway built with NestJS, providing a single entry point
 
 This gateway sits between frontend clients and downstream services, handling cross-cutting concerns so individual services don't have to. Every request is authenticated, rate limited, logged, and tracked before being proxied to the appropriate upstream service.
 
+## Features
+
+- **JWT authentication** — validates bearer tokens on all protected routes, extracts roles, scopes, and tenant identity from claims
+- **Role and scope based authorization** — per-route, per-method access control enforced at the guard layer
+- **Multi-tenant dynamic routing** — routes are stored in Redis per tenant, resolved at request time from a `tenantId` claim in the JWT, and can be provisioned or updated at runtime via the Admin API without redeploying the gateway
+- **Dual rate limiting** — per-user ID when authenticated, per-IP as fallback, backed by Redis
+- **Request proxying** — forwards requests to downstream services using Node's native HTTP module, streaming request and response bodies without buffering
+- **User identity forwarding** — strips the JWT and injects `X-Auth-User-Id`, `X-Auth-User-Roles`, and `X-Auth-User-Scopes` headers for downstream services
+- **Structured logging** — JSON logs via Pino with request ID correlation, latency, and user context. Pretty-printed in development, raw JSON in production
+- **Prometheus metrics** — request rate, error rate, and latency histograms per route, exposed at `/metrics` behind an API key
+- **Grafana dashboard** — pre-configured dashboard showing request rate, error rate, p50/p99 latency, and rate limited requests
+- **Circuit breaking** — per-downstream-target circuit breaker that opens after a configurable number of consecutive failures and fast-fails with `503` until the target recovers. After a configurable wait, one probe request is allowed through; success closes the circuit, failure reopens it
+- **Idempotency** — deduplicates mutating requests (POST, PUT, PATCH, DELETE) using a Redis-backed store. Clients can supply an `Idempotency-Key` header; without one, a SHA-256 hash of `tenantId:method:path:body` is used. Duplicate requests within the TTL window receive the original cached response with an `X-Idempotency-Replay: true` header. Concurrent in-flight requests for the same key return `409 Conflict`. Individual routes can opt out via `skipIdempotency: true` in the route config
+- **Consistent error responses** — all errors return a uniform JSON shape with status code, message, path, and timestamp
+- **Health and version endpoints** — gateway-internal endpoints that bypass auth and proxying
+
 ## Architecture
 
 Every incoming request flows through the following pipeline:
@@ -37,22 +53,6 @@ Requests without a `tenantId` claim fall back to the `'default'` key in Redis ra
 
 **Why admin routes use a dedicated `AdminGuard` instead of `RolesGuard`**
 `RolesGuard` delegates authorization to `RouterMatcherService`, which looks up the route in the tenant registry. Admin routes are not registered in the registry — they are gateway-internal endpoints. `RolesGuard` would return `undefined` for them, silent-passing every request. `AdminGuard` validates the token directly and checks for the `admin` role without any route lookup.
-
-## Features
-
-- **JWT authentication** — validates bearer tokens on all protected routes, extracts roles, scopes, and tenant identity from claims
-- **Role and scope based authorization** — per-route, per-method access control enforced at the guard layer
-- **Multi-tenant dynamic routing** — routes are stored in Redis per tenant, resolved at request time from a `tenantId` claim in the JWT, and can be provisioned or updated at runtime via the Admin API without redeploying the gateway
-- **Dual rate limiting** — per-user ID when authenticated, per-IP as fallback, backed by Redis
-- **Request proxying** — forwards requests to downstream services using Node's native HTTP module, streaming request and response bodies without buffering
-- **User identity forwarding** — strips the JWT and injects `X-Auth-User-Id`, `X-Auth-User-Roles`, and `X-Auth-User-Scopes` headers for downstream services
-- **Structured logging** — JSON logs via Pino with request ID correlation, latency, and user context. Pretty-printed in development, raw JSON in production
-- **Prometheus metrics** — request rate, error rate, and latency histograms per route, exposed at `/metrics` behind an API key
-- **Grafana dashboard** — pre-configured dashboard showing request rate, error rate, p50/p99 latency, and rate limited requests
-- **Circuit breaking** — per-downstream-target circuit breaker that opens after a configurable number of consecutive failures and fast-fails with `503` until the target recovers. After a configurable wait, one probe request is allowed through; success closes the circuit, failure reopens it
-- **Idempotency** — deduplicates mutating requests (POST, PUT, PATCH, DELETE) using a Redis-backed store. Clients can supply an `Idempotency-Key` header; without one, a SHA-256 hash of `tenantId:method:path:body` is used. Duplicate requests within the TTL window receive the original cached response with an `X-Idempotency-Replay: true` header. Concurrent in-flight requests for the same key return `409 Conflict`. Individual routes can opt out via `skipIdempotency: true` in the route config
-- **Consistent error responses** — all errors return a uniform JSON shape with status code, message, path, and timestamp
-- **Health and version endpoints** — gateway-internal endpoints that bypass auth and proxying
 
 ## Project structure
 
