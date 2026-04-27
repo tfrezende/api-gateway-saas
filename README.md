@@ -2,6 +2,39 @@
 
 A production-ready API Gateway built with NestJS, providing a single entry point for routing, authentication, rate limiting, idempotency, circuit breaking, observability, and multi-tenant dynamic routing across multiple downstream services.
 
+## Table of contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Project structure](#project-structure)
+- [Getting started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Setup](#setup)
+  - [Running locally](#running-locally)
+- [Services](#services)
+- [Configuration](#configuration)
+- [Adding a route](#adding-a-route)
+- [Running tests](#running-tests)
+- [API reference](#api-reference)
+  - [Gateway endpoints](#gateway-endpoints)
+  - [Admin API](#admin-api)
+  - [Error responses](#error-responses)
+  - [Rate limiting](#rate-limiting)
+  - [Headers forwarded to downstream services](#headers-forwarded-to-downstream-services)
+- [Circuit breaker](#circuit-breaker)
+- [Idempotency](#idempotency)
+  - [Key resolution](#key-resolution)
+  - [Concurrent requests](#concurrent-requests)
+  - [Opting out](#opting-out)
+  - [Headers](#headers)
+- [Observability](#observability)
+  - [Logs](#logs)
+  - [Metrics](#metrics)
+  - [Grafana dashboard](#grafana-dashboard)
+- [Scraping metrics](#scraping-metrics)
+- [Planned extensions](#planned-extensions)
+
 ## Overview
 
 This gateway sits between frontend clients and downstream services, handling cross-cutting concerns so individual services don't have to. Every request is authenticated, rate limited, logged, and tracked before being proxied to the appropriate upstream service.
