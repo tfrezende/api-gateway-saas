@@ -1,6 +1,6 @@
 # API Gateway
 
-A production-ready API Gateway built with NestJS, providing a single entry point for routing, authentication, rate limiting, idempotency, circuit breaking, observability, and multi-tenant service discovery across multiple downstream services.
+A production-ready API Gateway built with NestJS, providing a single entry point for routing, authentication, rate limiting, idempotency, circuit breaking, observability, and multi-tenant dynamic routing across multiple downstream services.
 
 ## Overview
 
@@ -42,7 +42,7 @@ Requests without a `tenantId` claim fall back to the `'default'` key in Redis ra
 
 - **JWT authentication** — validates bearer tokens on all protected routes, extracts roles, scopes, and tenant identity from claims
 - **Role and scope based authorization** — per-route, per-method access control enforced at the guard layer
-- **Multi-tenant service discovery** — routes are stored in Redis per tenant and resolved at request time from a `tenantId` claim in the JWT. An Admin API allows provisioning and updating tenant routes without redeploying the gateway
+- **Multi-tenant dynamic routing** — routes are stored in Redis per tenant, resolved at request time from a `tenantId` claim in the JWT, and can be provisioned or updated at runtime via the Admin API without redeploying the gateway
 - **Dual rate limiting** — per-user ID when authenticated, per-IP as fallback, backed by Redis
 - **Request proxying** — forwards requests to downstream services using Node's native HTTP module, streaming request and response bodies without buffering
 - **User identity forwarding** — strips the JWT and injects `X-Auth-User-Id`, `X-Auth-User-Roles`, and `X-Auth-User-Scopes` headers for downstream services
@@ -130,20 +130,20 @@ npm install
 # configure environment
 cp .env.example .env
 # fill in JWT_SECRET, METRICS_API_KEY, and GRAFANA_PASSWORD in .env
- 
+
 # start all services
 docker-compose up --build -d
 ```
 
 ### Running locally
- 
+
 ```bash
 # start Redis
 docker run -d --name gateway-redis -p 6379:6379 redis:7.2-alpine
- 
+
 # configure environment
 cp .env.example .env
- 
+
 # start in development mode
 npm run start:dev
 ```
@@ -151,37 +151,37 @@ npm run start:dev
 The gateway starts on `http://localhost:3000` by default.
 
 ## Services
- 
-| Service    | URL                       | Description                        |
-|------------|---------------------------|------------------------------------|
-| Gateway    | http://localhost:3000     | API Gateway                        |
-| Prometheus | http://localhost:9090     | Metrics collection                 |
-| Grafana    | http://localhost:3001     | Metrics dashboard (admin/password) |
-| Redis      | localhost:6379            | Rate limiter state                 |
- 
+
+| Service    | URL                   | Description                        |
+| ---------- | --------------------- | ---------------------------------- |
+| Gateway    | http://localhost:3000 | API Gateway                        |
+| Prometheus | http://localhost:9090 | Metrics collection                 |
+| Grafana    | http://localhost:3001 | Metrics dashboard (admin/password) |
+| Redis      | localhost:6379        | Rate limiter state                 |
+
 ## Configuration
- 
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `3000` | Port the gateway listens on |
-| `JWT_SECRET` | — | **Required.** Secret key for JWT validation |
-| `JWT_EXPIRES_IN` | `1h` | JWT expiration window |
-| `PROXY_TIMEOUT` | `5000` | Upstream request timeout in milliseconds |
-| `REDIS_HOST` | `localhost` | Redis hostname |
-| `REDIS_PORT` | `6379` | Redis port |
-| `THROTTLER_IP_TTL` | `60000` | IP rate limit window in milliseconds |
-| `THROTTLER_IP_LIMIT` | `200` | Max requests per IP per window |
-| `THROTTLER_USER_TTL` | `60000` | User rate limit window in milliseconds |
-| `THROTTLER_USER_LIMIT` | `300` | Max requests per user per window |
-| `CIRCUIT_BREAKER_THRESHOLD` | `5` | Consecutive failures before the circuit opens |
-| `CIRCUIT_BREAKER_HALF_OPEN_AFTER` | `10000` | Milliseconds to wait before probing a recovering target |
-| `METRICS_API_KEY` | — | **Required.** API key for /metrics endpoint |
-| `TENANT_CACHE_TTL_MS` | `30000` | How long tenant route configs are cached in-process (milliseconds) |
-| `IDEMPOTENCY_TTL_MS` | `86400000` | How long a cached idempotent response is kept in Redis (milliseconds) |
-| `IDEMPOTENCY_PROCESSING_TTL_MS` | `30000` | How long an in-flight request sentinel is held before expiring (milliseconds) |
-| `LOGGER_LEVEL` | `info` | Pino log level (trace/debug/info/warn/error) |
-| `NODE_ENV` | `development` | Enables pretty logging when not production |
-| `GRAFANA_PASSWORD` | `admin` | Grafana admin password |
+
+| Variable                          | Default       | Description                                                                   |
+| --------------------------------- | ------------- | ----------------------------------------------------------------------------- |
+| `PORT`                            | `3000`        | Port the gateway listens on                                                   |
+| `JWT_SECRET`                      | —             | **Required.** Secret key for JWT validation                                   |
+| `JWT_EXPIRES_IN`                  | `1h`          | JWT expiration window                                                         |
+| `PROXY_TIMEOUT`                   | `5000`        | Upstream request timeout in milliseconds                                      |
+| `REDIS_HOST`                      | `localhost`   | Redis hostname                                                                |
+| `REDIS_PORT`                      | `6379`        | Redis port                                                                    |
+| `THROTTLER_IP_TTL`                | `60000`       | IP rate limit window in milliseconds                                          |
+| `THROTTLER_IP_LIMIT`              | `200`         | Max requests per IP per window                                                |
+| `THROTTLER_USER_TTL`              | `60000`       | User rate limit window in milliseconds                                        |
+| `THROTTLER_USER_LIMIT`            | `300`         | Max requests per user per window                                              |
+| `CIRCUIT_BREAKER_THRESHOLD`       | `5`           | Consecutive failures before the circuit opens                                 |
+| `CIRCUIT_BREAKER_HALF_OPEN_AFTER` | `10000`       | Milliseconds to wait before probing a recovering target                       |
+| `METRICS_API_KEY`                 | —             | **Required.** API key for /metrics endpoint                                   |
+| `TENANT_CACHE_TTL_MS`             | `30000`       | How long tenant route configs are cached in-process (milliseconds)            |
+| `IDEMPOTENCY_TTL_MS`              | `86400000`    | How long a cached idempotent response is kept in Redis (milliseconds)         |
+| `IDEMPOTENCY_PROCESSING_TTL_MS`   | `30000`       | How long an in-flight request sentinel is held before expiring (milliseconds) |
+| `LOGGER_LEVEL`                    | `info`        | Pino log level (trace/debug/info/warn/error)                                  |
+| `NODE_ENV`                        | `development` | Enables pretty logging when not production                                    |
+| `GRAFANA_PASSWORD`                | `admin`       | Grafana admin password                                                        |
 
 ## Adding a route
 
@@ -239,23 +239,23 @@ Unit tests cover guards, filters, interceptors, and services. Integration tests 
 
 These endpoints are served directly by the gateway and do not require authentication.
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/healthcheck` | Returns gateway health status |
-| `GET` | `/version` | Returns gateway name and version |
-| `GET` | `/metrics` | Prometheus metrics (requires `X-Metrics-Api-Key` header) |
+| Method | Path           | Description                                              |
+| ------ | -------------- | -------------------------------------------------------- |
+| `GET`  | `/healthcheck` | Returns gateway health status                            |
+| `GET`  | `/version`     | Returns gateway name and version                         |
+| `GET`  | `/metrics`     | Prometheus metrics (requires `X-Metrics-Api-Key` header) |
 
 ### Admin API
 
 All Admin API endpoints require a valid JWT with an `admin` role in the `Authorization: Bearer <token>` header.
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/admin/tenants/:tenantId/routes` | Returns all routes for a tenant. `404` if none exist |
-| `PUT` | `/admin/tenants/:tenantId/routes` | Replaces all routes for a tenant with the request body (`RouteConfig[]`) |
-| `POST` | `/admin/tenants/:tenantId/routes` | Adds or updates a single route by path (`RouteConfig`) |
-| `DELETE` | `/admin/tenants/:tenantId/routes` | Deletes all routes for a tenant |
-| `DELETE` | `/admin/tenants/:tenantId/routes?path=<routePath>` | Deletes a single route by path |
+| Method   | Path                                               | Description                                                              |
+| -------- | -------------------------------------------------- | ------------------------------------------------------------------------ |
+| `GET`    | `/admin/tenants/:tenantId/routes`                  | Returns all routes for a tenant. `404` if none exist                     |
+| `PUT`    | `/admin/tenants/:tenantId/routes`                  | Replaces all routes for a tenant with the request body (`RouteConfig[]`) |
+| `POST`   | `/admin/tenants/:tenantId/routes`                  | Adds or updates a single route by path (`RouteConfig`)                   |
+| `DELETE` | `/admin/tenants/:tenantId/routes`                  | Deletes all routes for a tenant                                          |
+| `DELETE` | `/admin/tenants/:tenantId/routes?path=<routePath>` | Deletes a single route by path                                           |
 
 ### Error responses
 
@@ -283,13 +283,13 @@ Retry-After: 60
 
 Downstream services receive the following headers on authenticated requests:
 
-| Header | Value |
-|---|---|
-| `X-Auth-User-Id` | Subject claim from JWT |
-| `X-Auth-User-Email` | Email claim from JWT |
-| `X-Auth-User-Roles` | Comma-separated roles from JWT |
-| `X-Auth-User-Scopes` | Comma-separated scopes from JWT |
-| `X-Request-Id` | UUID generated per request for log correlation |
+| Header               | Value                                          |
+| -------------------- | ---------------------------------------------- |
+| `X-Auth-User-Id`     | Subject claim from JWT                         |
+| `X-Auth-User-Email`  | Email claim from JWT                           |
+| `X-Auth-User-Roles`  | Comma-separated roles from JWT                 |
+| `X-Auth-User-Scopes` | Comma-separated scopes from JWT                |
+| `X-Request-Id`       | UUID generated per request for log correlation |
 
 Downstream services do not need to validate tokens — they can trust these headers since only the gateway has access to the JWT secret.
 
@@ -344,54 +344,59 @@ If two requests with the same key arrive simultaneously (before the first one co
 Individual routes can bypass idempotency by setting `skipIdempotency: true` in the route config:
 
 ```json
-{ "path": "/api/events", "target": "http://localhost:3004", "skipIdempotency": true, "methods": { "POST": { "roles": ["user"] } } }
+{
+  "path": "/api/events",
+  "target": "http://localhost:3004",
+  "skipIdempotency": true,
+  "methods": { "POST": { "roles": ["user"] } }
+}
 ```
 
 Use this for endpoints that are intentionally non-idempotent (e.g. event streams, fire-and-forget webhooks).
 
 ### Headers
 
-| Header | Direction | Description |
-|---|---|---|
-| `Idempotency-Key` | Request | Client-supplied deduplication key |
-| `X-Idempotency-Replay` | Response | Present and set to `true` on replayed responses |
+| Header                 | Direction | Description                                     |
+| ---------------------- | --------- | ----------------------------------------------- |
+| `Idempotency-Key`      | Request   | Client-supplied deduplication key               |
+| `X-Idempotency-Replay` | Response  | Present and set to `true` on replayed responses |
 
 ## Scraping metrics
- 
+
 Prometheus scrapes `/metrics` using a Bearer token. To query metrics manually:
- 
+
 ```bash
 curl http://localhost:3000/metrics \
   -H "X-Metrics-Api-Key: your-metrics-key"
 ```
- 
+
 ## Observability
- 
+
 ### Logs
- 
+
 Logs are structured JSON in production and pretty-printed in development. Every log line includes:
- 
+
 - `requestId` — UUID for correlating request and response log entries
 - `method` and `path` — HTTP method and route pattern
 - `statusCode` — response status code
 - `latencyMs` — total request duration
 - `userId` — authenticated user ID when present
- 
+
 ### Metrics
- 
+
 The following metrics are exposed at `/metrics`:
- 
-| Metric | Type | Description |
-|---|---|---|
-| `api_gateway_requests_total` | Counter | Total requests by method, path, status code |
-| `api_gateway_errors_total` | Counter | Total errors by method, path, status code |
-| `api_gateway_request_latency_seconds` | Histogram | Request latency by method and path |
-| `api_gateway_circuit_breaker_total` | Counter | Circuit breaker state transitions by state (OPEN/HALF\_OPEN/CLOSED) and target |
- 
+
+| Metric                                | Type      | Description                                                                   |
+| ------------------------------------- | --------- | ----------------------------------------------------------------------------- |
+| `api_gateway_requests_total`          | Counter   | Total requests by method, path, status code                                   |
+| `api_gateway_errors_total`            | Counter   | Total errors by method, path, status code                                     |
+| `api_gateway_request_latency_seconds` | Histogram | Request latency by method and path                                            |
+| `api_gateway_circuit_breaker_total`   | Counter   | Circuit breaker state transitions by state (OPEN/HALF_OPEN/CLOSED) and target |
+
 ### Grafana dashboard
- 
+
 The pre-configured dashboard at `http://localhost:3001` includes:
- 
+
 - Request rate per route
 - Error rate per route and status code
 - p50 and p99 latency per route
